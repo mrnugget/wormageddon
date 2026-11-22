@@ -3,6 +3,7 @@ import SwiftUI
 struct PauseOverlayView: View {
     @State private var isMuted = SoundEngine.shared.isMuted
     let onResume: () -> Void
+    let onInspectMap: () -> Void
     let onRestart: () -> Void
     let onQuitToMenu: () -> Void
 
@@ -19,6 +20,10 @@ struct PauseOverlayView: View {
                     Button("Weiterspielen", action: onResume)
                         .buttonStyle(.borderedProminent)
                         .tint(Color(art: Art.lagoon))
+
+                    Button("Karte anschauen (Zoom & Umsehen)", action: onInspectMap)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(art: Art.sky))
 
                     Button("Neue Insel (Neustart)", action: onRestart)
                         .buttonStyle(.borderedProminent)
@@ -47,7 +52,7 @@ struct PauseOverlayView: View {
                         Text("Apple TV Siri Remote (nur fest drücken)")
                             .font(.system(size: 24, weight: .bold, design: .rounded))
                             .foregroundStyle(Color(art: Art.cream))
-                        Text("• Links / Rechts drücken: Wurm laufen lassen\n• Hoch / Runter drücken: Zielen\n• Auswahl halten & loslassen: Schießen (Schaf: nochmal drücken = Knall!)\n• 2× Hoch / 2× Runter drücken: Sprung / Rückwärtssalto\n• Play/Pause: Waffenkammer (10 Waffen) öffnen\n• Menü / Zurück: Pause")
+                        Text("• Links / Rechts drücken: Wurm laufen lassen\n• Hoch / Runter drücken: Zielen (Seil: ein-/ausrollen · Jetpack: fliegen)\n• Auswahl halten & loslassen: Schießen (Seil/Jetpack: abspringen · Schaf: Knall!)\n• 2× Hoch / 2× Runter drücken: Sprung / Rückwärtssalto\n• Play/Pause: Waffenkammer (15 Waffen & Tools) öffnen\n• Menü / Zurück: Pause")
                             .font(.system(size: 20, weight: .medium, design: .rounded))
                             .foregroundStyle(Color(art: Art.cream).opacity(0.88))
                             .lineSpacing(6)

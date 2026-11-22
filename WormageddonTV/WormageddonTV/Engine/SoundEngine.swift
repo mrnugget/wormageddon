@@ -17,6 +17,10 @@ enum SoundEffect: CaseIterable {
     case sheepBaa
     case firePunch
     case dynamitePlace
+    case ropeHook
+    case baseballCrack
+    case teleportWarp
+    case jetpackPuff
 }
 
 final class SoundEngine {
@@ -208,6 +212,33 @@ final class SoundEngine {
             let thud: Double = sin(twoPi * 150.0 * t) * 0.5
             let sizzle: Double = Double.random(in: -1.0...1.0) * 0.35
             return Float((thud + sizzle) * env * 0.6)
+        }
+
+        buffers[.ropeHook] = makeBuffer(duration: 0.14) { t, _ in
+            let env: Double = exp(-t * 26.0)
+            let clink: Double = sin(twoPi * 1420.0 * t) * 0.55 + sin(twoPi * 2180.0 * t) * 0.35
+            return Float(clink * env * 0.55)
+        }
+
+        buffers[.baseballCrack] = makeBuffer(duration: 0.22) { t, _ in
+            let env: Double = exp(-t * 22.0)
+            let wood: Double = sin(twoPi * 520.0 * t) * 0.65 + sin(twoPi * 980.0 * t) * 0.35
+            let snap: Double = Double.random(in: -1.0...1.0) * 0.55 * exp(-t * 45.0)
+            return Float((wood + snap) * env * 0.88)
+        }
+
+        buffers[.teleportWarp] = makeBuffer(duration: 0.42) { t, _ in
+            let env: Double = sin(min(1.0, t / 0.42) * Double.pi)
+            let sweep: Double = 360.0 + t * 1850.0
+            let chime: Double = sin(twoPi * sweep * t) * 0.45 + sin(twoPi * (sweep * 1.5) * t) * 0.25
+            return Float(chime * env * 0.52)
+        }
+
+        buffers[.jetpackPuff] = makeBuffer(duration: 0.18) { t, _ in
+            let env: Double = exp(-t * 9.0)
+            let roar: Double = Double.random(in: -1.0...1.0) * 0.48
+            let bass: Double = sin(twoPi * 115.0 * t) * 0.35
+            return Float((roar + bass) * env * 0.55)
         }
     }
 

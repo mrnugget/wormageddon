@@ -19,6 +19,7 @@ struct InputSnapshot {
     var toggleWeaponBarPressed: Bool = false
     var prevWeaponPressed: Bool = false
     var nextWeaponPressed: Bool = false
+    var toggleCameraViewPressed: Bool = false
     var pausePressed: Bool = false
 
     mutating func consumePulses() {
@@ -29,6 +30,7 @@ struct InputSnapshot {
         toggleWeaponBarPressed = false
         prevWeaponPressed = false
         nextWeaponPressed = false
+        toggleCameraViewPressed = false
         pausePressed = false
     }
 

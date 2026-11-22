@@ -353,7 +353,7 @@ final class WormNode: SKNode {
         // Held weapon only shown on active worm
         weaponPivot.isHidden = !isActive
         if isActive {
-            weaponPivot.zRotation = worm.aimAngle
+            weaponPivot.zRotation = (weapon == .jetpack) ? 0 : worm.aimAngle
             if renderedWeapon != weapon {
                 rebuildWeaponGraphic(for: weapon)
                 renderedWeapon = weapon
@@ -375,11 +375,16 @@ final class WormNode: SKNode {
         weaponGraphic.removeAllChildren()
         // Every held weapon uses its bold, simplified small Painter sprite.
         let sprite = SKSpriteNode(imageNamed: weapon.smallIconName)
-        let side: CGFloat = (weapon == .bazooka || weapon == .shotgun) ? 34 : 26
+        let side: CGFloat = (weapon == .bazooka || weapon == .shotgun || weapon == .blowtorch) ? 34 : 28
         sprite.setScale(side / max(1, max(sprite.size.width, sprite.size.height)))
-        sprite.position = CGPoint(x: side * 0.45, y: 2)
-        // The painted launcher/popgun face up-right; level them with the aim line.
-        sprite.zRotation = weapon == .bazooka ? -0.6 : (weapon == .shotgun ? -0.2 : 0)
+        if weapon == .jetpack {
+            sprite.position = CGPoint(x: -12, y: 2)
+            sprite.zPosition = -1
+        } else {
+            sprite.position = CGPoint(x: side * 0.45, y: 2)
+        }
+        // Level diagonal-up-right tools with the aim vector.
+        sprite.zRotation = (weapon == .bazooka || weapon == .blowtorch) ? -0.55 : (weapon == .shotgun ? -0.2 : 0)
         weaponGraphic.addChild(sprite)
     }
 }

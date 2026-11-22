@@ -124,6 +124,13 @@ final class GameScene: SKScene {
     private let airstrikeOverlay = SKNode()
     private let airstrikeBeam = SKShapeNode()
     private let airstrikeReticle = SKShapeNode()
+    private let ropeOverlay = SKNode()
+    private let ropeInkLine = SKShapeNode()
+    private let ropeInnerLine = SKShapeNode()
+    private let ropeHookSprite = SKSpriteNode(imageNamed: WeaponKind.rope.smallIconName)
+    private let teleportOverlay = SKNode()
+    private let teleportOuterRing = SKShapeNode(circleOfRadius: 34)
+    private let teleportInnerRing = SKShapeNode(circleOfRadius: 20)
 
     // HUD Nodes (camera space — always anchored to 1920x1080 viewport!)
     private let hudLayer = SKNode()
@@ -154,6 +161,17 @@ final class GameScene: SKScene {
     private var lastChipWeapon: WeaponKind?
     private var didNotifyMatchEnd = false
     var isGameplayPaused = false
+
+    // Free Camera / Map Overview Mode (Karten-Ansicht)
+    private(set) var isCameraViewMode = false
+    private var cameraViewPos = CGPoint(x: WorldConstants.width * 0.5, y: WorldConstants.height * 0.48)
+    private var cameraViewWideZoom = true
+
+    func enterCameraViewMode() {
+        isCameraViewMode = true
+        cameraViewWideZoom = true
+        cameraViewPos = engine.activeWorm?.position ?? CGPoint(x: WorldConstants.width * 0.5, y: WorldConstants.height * 0.48)
+    }
 
     init(config: MatchConfig) {
         self.engine = GameEngine(config: config)
@@ -644,6 +662,42 @@ final class GameScene: SKScene {
         airstrikeOverlay.addChild(airstrikeReticle)
         airstrikeOverlay.isHidden = true
         worldLayer.addChild(airstrikeOverlay)
+
+        // Ninja-Seil rope & grappling hook anchor
+        ropeOverlay.zPosition = 27
+        ropeInkLine.strokeColor = Art.ink
+        ropeInkLine.lineWidth = 8.5
+        ropeInkLine.lineCap = .round
+        ropeOverlay.addChild(ropeInkLine)
+
+        ropeInnerLine.strokeColor = Art.sun
+        ropeInnerLine.lineWidth = 3.8
+        ropeInnerLine.lineCap = .round
+        ropeOverlay.addChild(ropeInnerLine)
+
+        let hookScale = 30 / max(1, max(ropeHookSprite.size.width, ropeHookSprite.size.height))
+        ropeHookSprite.setScale(hookScale)
+        ropeOverlay.addChild(ropeHookSprite)
+        ropeOverlay.isHidden = true
+        worldLayer.addChild(ropeOverlay)
+
+        // Teleport swirling portal reticle
+        teleportOverlay.zPosition = 33
+        teleportOuterRing.strokeColor = Art.lagoon
+        teleportOuterRing.fillColor = Art.lagoon.withAlphaComponent(0.18)
+        teleportOuterRing.lineWidth = 5
+        teleportOverlay.addChild(teleportOuterRing)
+
+        teleportInnerRing.strokeColor = Art.sun
+        teleportInnerRing.fillColor = Art.cream.withAlphaComponent(0.24)
+        teleportInnerRing.lineWidth = 3
+        teleportOverlay.addChild(teleportInnerRing)
+
+        let portalIcon = SKSpriteNode(imageNamed: WeaponKind.teleport.smallIconName)
+        portalIcon.setScale(34 / max(1, max(portalIcon.size.width, portalIcon.size.height)))
+        teleportOverlay.addChild(portalIcon)
+        teleportOverlay.isHidden = true
+        worldLayer.addChild(teleportOverlay)
     }
 
     private func buildWormNodes() {
@@ -826,9 +880,9 @@ final class GameScene: SKScene {
         turnBannerNode.addChild(turnBannerSubtitle)
         hudLayer.addChild(turnBannerNode)
 
-        // Top-Center Persistent Status Pill (Shotgun 2nd shot / Dynamite retreat)
+        // Top-Center Persistent Status Pill (Camera View / Shotgun 2nd shot / Retreat / Tools)
         statusPillNode.position = CGPoint(x: 0, y: halfH - safeY - 34)
-        statusPillBg.path = CGPath(roundedRect: CGRect(x: -290, y: -24, width: 580, height: 48), cornerWidth: 24, cornerHeight: 24, transform: nil)
+        statusPillBg.path = CGPath(roundedRect: CGRect(x: -370, y: -24, width: 740, height: 48), cornerWidth: 24, cornerHeight: 24, transform: nil)
         statusPillBg.strokeColor = Art.ink
         statusPillBg.lineWidth = 4
         statusPillNode.addChild(statusPillBg)
@@ -842,14 +896,14 @@ final class GameScene: SKScene {
         hudLayer.addChild(statusPillNode)
     }
 
-    // MARK: - 2×5 Painted Weapon Drawer (large Painter icons)
+    // MARK: - 3×5 Painted Weapon Drawer (15 weapons & tools)
 
     private func buildWeaponBar() {
-        weaponBarContainer.position = CGPoint(x: 0, y: -28)
+        weaponBarContainer.position = CGPoint(x: 0, y: -12)
         weaponBarContainer.zPosition = 130
         weaponBarContainer.isHidden = true
 
-        let backdrop = Art.panel(CGRect(x: -580, y: -250, width: 1160, height: 500), radius: 36, fillAlpha: 0.96, stroke: Art.cream.withAlphaComponent(0.28), lineWidth: 3)
+        let backdrop = Art.panel(CGRect(x: -580, y: -316, width: 1160, height: 632), radius: 36, fillAlpha: 0.96, stroke: Art.cream.withAlphaComponent(0.28), lineWidth: 3)
         weaponBarContainer.addChild(backdrop)
 
         // Header ribbon
@@ -857,24 +911,24 @@ final class GameScene: SKScene {
         ribbon.fillColor = Art.sun
         ribbon.strokeColor = Art.ink
         ribbon.lineWidth = 4
-        ribbon.position = CGPoint(x: 0, y: 250)
+        ribbon.position = CGPoint(x: 0, y: 316)
         weaponBarContainer.addChild(ribbon)
 
         let header = Art.label(24, .black, color: Art.ink)
         header.text = "WAFFENKAMMER"
         header.verticalAlignmentMode = .center
-        header.position = CGPoint(x: 0, y: 250)
+        header.position = CGPoint(x: 0, y: 316)
         weaponBarContainer.addChild(header)
 
         weaponBarSlots.removeAll()
         let weapons = WeaponKind.allCases
         let cols = 5
         let cardW: CGFloat = 200
-        let cardH: CGFloat = 164
+        let cardH: CGFloat = 144
         let gapX: CGFloat = 18
         let totalW = CGFloat(cols) * cardW + CGFloat(cols - 1) * gapX
         let startX = -totalW * 0.5 + cardW * 0.5
-        let rowY: [CGFloat] = [104, -76]
+        let rowY: [CGFloat] = [194, 34, -126]
 
         for (i, weapon) in weapons.enumerated() {
             let row = i / cols
@@ -882,73 +936,73 @@ final class GameScene: SKScene {
             let x = startX + CGFloat(col) * (cardW + gapX)
             let y = rowY[min(row, rowY.count - 1)]
 
-            let slotBg = SKShapeNode(rectOf: CGSize(width: cardW, height: cardH), cornerRadius: 22)
+            let slotBg = SKShapeNode(rectOf: CGSize(width: cardW, height: cardH), cornerRadius: 20)
             slotBg.fillColor = Art.inkSoft
             slotBg.lineWidth = 3
             slotBg.position = CGPoint(x: x, y: y)
             weaponBarContainer.addChild(slotBg)
 
             // Cream "paper" medallion behind the painted icon
-            let medallion = SKShapeNode(circleOfRadius: 46)
+            let medallion = SKShapeNode(circleOfRadius: 40)
             medallion.fillColor = Art.cream.withAlphaComponent(0.16)
             medallion.strokeColor = weapon.accentColor.withAlphaComponent(0.55)
-            medallion.lineWidth = 2.5
-            medallion.position = CGPoint(x: 0, y: 14)
+            medallion.lineWidth = 2.4
+            medallion.position = CGPoint(x: 0, y: 12)
             slotBg.addChild(medallion)
 
             let icon = SKSpriteNode(imageNamed: weapon.iconName)
-            let iconScale = 92 / max(icon.size.width, icon.size.height)
+            let iconScale = 80 / max(1, max(icon.size.width, icon.size.height))
             icon.setScale(iconScale)
-            icon.position = CGPoint(x: 0, y: 14)
+            icon.position = CGPoint(x: 0, y: 12)
             slotBg.addChild(icon)
 
-            // Feature tag pill (top-left), e.g. "2 SCHÜSSE", "HÜPFT!", "WEGRENNEN!"
-            let tagW = CGFloat(weapon.tagBadge.count) * 6.6 + 16
-            let tagBg = SKShapeNode(rectOf: CGSize(width: tagW, height: 22), cornerRadius: 11)
+            // Feature tag pill (top-left)
+            let tagW = CGFloat(weapon.tagBadge.count) * 6.5 + 15
+            let tagBg = SKShapeNode(rectOf: CGSize(width: tagW, height: 21), cornerRadius: 10.5)
             tagBg.fillColor = weapon == .shotgun ? Art.sun : weapon.accentColor
             tagBg.strokeColor = Art.ink
             tagBg.lineWidth = 2
-            tagBg.position = CGPoint(x: -cardW * 0.5 + tagW * 0.5 + 8, y: cardH * 0.5 - 16)
+            tagBg.position = CGPoint(x: -cardW * 0.5 + tagW * 0.5 + 8, y: cardH * 0.5 - 15)
             slotBg.addChild(tagBg)
 
-            let tagLabel = Art.label(10.5, .black, color: Art.ink)
+            let tagLabel = Art.label(10, .black, color: Art.ink)
             tagLabel.text = weapon.tagBadge
             tagLabel.verticalAlignmentMode = .center
             tagBg.addChild(tagLabel)
 
             // Ammo pill (top-right)
-            let ammoBg = SKShapeNode(rectOf: CGSize(width: 40, height: 24), cornerRadius: 12)
+            let ammoBg = SKShapeNode(rectOf: CGSize(width: 38, height: 22), cornerRadius: 11)
             ammoBg.fillColor = Art.inkDeep
             ammoBg.strokeColor = Art.cream.withAlphaComponent(0.4)
             ammoBg.lineWidth = 1.5
-            ammoBg.position = CGPoint(x: cardW * 0.5 - 28, y: cardH * 0.5 - 17)
+            ammoBg.position = CGPoint(x: cardW * 0.5 - 27, y: cardH * 0.5 - 16)
             slotBg.addChild(ammoBg)
 
-            let ammo = Art.label(14, .heavy)
+            let ammo = Art.label(13.5, .heavy)
             ammo.text = "∞"
             ammo.verticalAlignmentMode = .center
             ammoBg.addChild(ammo)
 
-            let title = Art.label(17, .heavy)
+            let title = Art.label(15.5, .heavy)
             title.text = weapon.name
             title.verticalAlignmentMode = .center
-            title.position = CGPoint(x: 0, y: -56)
+            title.position = CGPoint(x: 0, y: -48)
             slotBg.addChild(title)
 
             weaponBarSlots.append((slotBg, ammo, weapon))
         }
 
         // Bottom info strip for the highlighted weapon
-        weaponBarSelectedTitle.fontSize = 21
+        weaponBarSelectedTitle.fontSize = 20
         weaponBarSelectedTitle.fontColor = Art.sun
         weaponBarSelectedTitle.verticalAlignmentMode = .center
-        weaponBarSelectedTitle.position = CGPoint(x: 0, y: -188)
+        weaponBarSelectedTitle.position = CGPoint(x: 0, y: -236)
         weaponBarContainer.addChild(weaponBarSelectedTitle)
 
-        weaponBarHintLabel.fontSize = 17
+        weaponBarHintLabel.fontSize = 16.5
         weaponBarHintLabel.fontColor = Art.cream.withAlphaComponent(0.92)
         weaponBarHintLabel.verticalAlignmentMode = .center
-        weaponBarHintLabel.position = CGPoint(x: 0, y: -216)
+        weaponBarHintLabel.position = CGPoint(x: 0, y: -266)
         weaponBarContainer.addChild(weaponBarHintLabel)
 
         hudLayer.addChild(weaponBarContainer)
@@ -968,6 +1022,44 @@ final class GameScene: SKScene {
         elapsedTime += dt
 
         var input = inputProvider?() ?? InputSnapshot()
+
+        // Toggle Karten-Ansicht (2× Play/Pause on Siri Remote, L2 on controller)
+        if input.toggleCameraViewPressed {
+            if isCameraViewMode {
+                isCameraViewMode = false
+            } else {
+                // Close weapon bar if double-click Play/Pause just opened it
+                if engine.isWeaponBarOpen {
+                    var close = InputSnapshot(); close.toggleWeaponBarPressed = true
+                    engine.update(dt: 1.0 / 60.0, input: &close)
+                }
+                enterCameraViewMode()
+            }
+            updateHUD()
+            return
+        }
+
+        // In Karten-Ansicht: pan smoothly with ← → ↑ ↓, toggle zoom with Auswahl, exit with Menu/Play-Pause
+        if isCameraViewMode {
+            if input.pausePressed || input.toggleWeaponBarPressed {
+                isCameraViewMode = false
+                updateHUD()
+                return
+            }
+            if input.firePressed {
+                cameraViewWideZoom.toggle()
+            }
+            let panSpeed: CGFloat = cameraViewWideZoom ? 1050 : 780
+            cameraViewPos.x = max(120, min(WorldConstants.width - 120, cameraViewPos.x + input.moveX * panSpeed * CGFloat(dt)))
+            cameraViewPos.y = max(120, min(WorldConstants.height - 120, cameraViewPos.y + input.aimY * panSpeed * CGFloat(dt)))
+            updateEnvironment(dt: dt)
+            syncWorms()
+            syncCrates()
+            updateCamera(dt: dt)
+            updateHUD()
+            return
+        }
+
         if input.pausePressed {
             isGameplayPaused = true
             gameDelegate?.gameSceneDidRequestPause()
@@ -1137,7 +1229,7 @@ final class GameScene: SKScene {
         case .sheep:
             body.addChild(sprite(WeaponKind.sheep.smallIconName, maxSide: 50))
 
-        case .shotgun, .firePunch:
+        case .shotgun, .firePunch, .rope, .jetpack, .baseballBat, .blowtorch, .teleport:
             break
         }
 
@@ -1253,9 +1345,9 @@ final class GameScene: SKScene {
     private func updateAimingAndOverlays() {
         let weaponUsesAim: Bool
         switch engine.selectedWeapon {
-        case .bazooka, .grenade, .clusterBomb, .shotgun, .holyGrenade, .bananaBomb:
+        case .bazooka, .grenade, .clusterBomb, .shotgun, .holyGrenade, .bananaBomb, .rope, .baseballBat, .blowtorch:
             weaponUsesAim = true
-        case .airstrike, .sheep, .firePunch, .dynamite:
+        case .airstrike, .sheep, .firePunch, .dynamite, .jetpack, .teleport:
             weaponUsesAim = false
         }
 
@@ -1270,7 +1362,7 @@ final class GameScene: SKScene {
         if showAim, let worm = engine.activeWorm, worm.isAlive {
             aimCrosshair.isHidden = false
             let dir = worm.aimDirection
-            let dist: CGFloat = 86
+            let dist: CGFloat = 104
             aimCrosshair.position = CGPoint(x: worm.position.x + dir.dx * dist, y: worm.position.y + 4 + dir.dy * dist)
             aimCrosshair.zRotation = CGFloat(elapsedTime * 1.4)
 
@@ -1289,8 +1381,9 @@ final class GameScene: SKScene {
             powerMeterNode.position = CGPoint(x: worm.position.x, y: worm.position.y + 4)
             powerMeterNode.zRotation = worm.worldAimAngle
 
-            let length = 26 + power * 108
-            let tipHalfH = 4.0 + power * 11.0
+            // Tapered Worms-style charge wedge: grows smoothly up to (never past) the crosshair ring!
+            let length = 12 + power * 60
+            let tipHalfH = 3.5 + power * 9.5
             let path = CGMutablePath()
             path.move(to: CGPoint(x: 20, y: -3.5))
             path.addLine(to: CGPoint(x: 20 + length, y: -tipHalfH))
@@ -1325,6 +1418,33 @@ final class GameScene: SKScene {
         } else {
             airstrikeOverlay.isHidden = true
         }
+
+        // Ninja-Seil live rope
+        if case .ropeSwinging(let anchor, _) = engine.phase, let worm = engine.activeWorm, worm.isAlive {
+            ropeOverlay.isHidden = false
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: worm.position.x, y: worm.position.y + 6))
+            path.addLine(to: anchor)
+            ropeInkLine.path = path
+            ropeInnerLine.path = path
+            ropeHookSprite.position = anchor
+            ropeHookSprite.zRotation = atan2(anchor.y - worm.position.y, anchor.x - worm.position.x) - .pi * 0.25
+        } else {
+            ropeOverlay.isHidden = true
+        }
+
+        // Teleport live portal reticle
+        if case .teleportAiming(let target) = engine.phase {
+            teleportOverlay.isHidden = false
+            teleportOverlay.position = target
+            let valid = engine.isValidTeleportTarget(target)
+            teleportOuterRing.strokeColor = valid ? Art.lagoon : Art.coral
+            teleportOuterRing.fillColor = (valid ? Art.lagoon : Art.coral).withAlphaComponent(0.20)
+            teleportInnerRing.strokeColor = valid ? Art.sun : Art.coral
+            teleportOverlay.setScale(1.0 + CGFloat(sin(elapsedTime * 7.0) * 0.08))
+        } else {
+            teleportOverlay.isHidden = true
+        }
     }
 
     // MARK: - Smooth Camera Panning & Zoom Across 2880 × 1500 World
@@ -1346,6 +1466,10 @@ final class GameScene: SKScene {
         var target = CGPoint(x: WorldConstants.width * 0.5, y: WorldConstants.height * 0.45)
         var targetScale: CGFloat = 1.04
 
+        if isCameraViewMode {
+            target = cameraViewPos
+            targetScale = cameraViewWideZoom ? 1.48 : 0.92
+        } else {
         switch engine.phase {
         case .projectileInFlight:
             if let proj = engine.projectiles.first {
@@ -1355,7 +1479,15 @@ final class GameScene: SKScene {
         case .airstrikeAiming(let targetX):
             target = CGPoint(x: targetX, y: WorldConstants.height * 0.48)
             targetScale = 1.36 // Wide dramatic overview of the 50% larger world!
-        case .retreat:
+        case .teleportAiming(let pt):
+            target = pt
+            targetScale = 1.36
+        case .ropeSwinging, .jetpackFlying:
+            if let worm = engine.activeWorm {
+                target = worm.position
+                targetScale = 1.12
+            }
+        case .blowtorching, .retreat:
             if let worm = engine.activeWorm {
                 target = worm.position
                 targetScale = 1.02
@@ -1373,6 +1505,7 @@ final class GameScene: SKScene {
                 target = worm.position
                 targetScale = engine.isWeaponBarOpen ? 1.15 : 1.02
             }
+        }
         }
 
         let lerp = min(1.0, CGFloat(dt) * 4.5)
@@ -1465,8 +1598,8 @@ final class GameScene: SKScene {
         windBarFill.path = CGPath(roundedRect: CGRect(x: fillX, y: -6, width: fillW, height: 12), cornerWidth: 6, cornerHeight: 6, transform: nil)
         windBarFill.fillColor = engine.wind >= 0 ? Art.lagoon : Art.sun
 
-        // Turn Banner
-        if case .turnBanner = engine.phase {
+        // Turn Banner (hidden while inspecting map)
+        if case .turnBanner = engine.phase, !isCameraViewMode {
             turnBannerNode.isHidden = false
             let desc = engine.currentTeam.descriptor
             turnBannerBg.strokeColor = desc.color
@@ -1477,17 +1610,50 @@ final class GameScene: SKScene {
             turnBannerNode.isHidden = true
         }
 
-        // Persistent Status Pill for Multi-Shot Shotgun or Dynamite Retreat!
-        if case .retreat(let rem) = engine.phase {
+        // Persistent Status Pill for Camera View, Retreat, Shotgun 2nd Shot, Rope, Jetpack, Blowtorch, Teleport
+        if isCameraViewMode {
             statusPillNode.isHidden = false
-            statusPillBg.fillColor = Art.coral
-            statusPillLabel.text = "DYNAMIT TICKT! SCHNELL WEGRENNEN! (\(max(1, Int(ceil(rem))))s)"
+            statusPillBg.fillColor = Art.lagoon
+            statusPillLabel.fontColor = Art.cream
+            statusPillLabel.text = cameraViewWideZoom
+                ? "KARTEN-ANSICHT (WEIT) · ←→↑↓ UMSEHEN · AUSWAHL: ZOOM"
+                : "KARTEN-ANSICHT (NAH) · ←→↑↓ UMSEHEN · AUSWAHL: WEIT"
+        } else if case .retreat(let rem) = engine.phase {
+            statusPillNode.isHidden = false
+            let hasDynamite = engine.projectiles.contains(where: { $0.weapon == .dynamite })
+            statusPillBg.fillColor = hasDynamite ? Art.coral : Art.lagoon
+            statusPillLabel.text = hasDynamite
+                ? "DYNAMIT TICKT! SCHNELL WEGRENNEN! (\(max(1, Int(ceil(rem))))s)"
+                : "RÜCKZUG · LAUF IN DECKUNG! (\(max(1, Int(ceil(rem))))s)"
+        } else if case .ropeSwinging = engine.phase {
+            statusPillNode.isHidden = false
+            statusPillBg.fillColor = Art.sun
+            statusPillLabel.fontColor = Art.ink
+            statusPillLabel.text = "NINJA-SEIL · ←/→ SCHWINGEN · AUSWAHL: ABSPRINGEN!"
+        } else if case .jetpackFlying(let fuel) = engine.phase {
+            statusPillNode.isHidden = false
+            statusPillBg.fillColor = Art.lagoon
+            statusPillLabel.fontColor = Art.cream
+            statusPillLabel.text = "JETPACK · TREIBSTOFF \(max(0, Int(round(fuel * 100))))% · AUSWAHL: LANDEN"
+        } else if case .blowtorching = engine.phase {
+            statusPillNode.isHidden = false
+            statusPillBg.fillColor = Art.sky
+            statusPillLabel.fontColor = Art.cream
+            statusPillLabel.text = "SCHWEISSBRENNER · ↑/↓ TUNNEL LENKEN · AUSWAHL: STOP"
+        } else if case .teleportAiming(let pt) = engine.phase {
+            statusPillNode.isHidden = false
+            let valid = engine.isValidTeleportTarget(pt)
+            statusPillBg.fillColor = valid ? Art.lagoon : Art.coral
+            statusPillLabel.fontColor = Art.cream
+            statusPillLabel.text = valid ? "TELEPORT · ←→↑↓ ZIEL WÄHLEN · AUSWAHL: ZAUBERN!" : "TELEPORT · HIER IST FELS – FREIEN PLATZ WÄHLEN!"
         } else if engine.shotgunShotsRemaining == 1 && engine.phase == .playerControl {
             statusPillNode.isHidden = false
             statusPillBg.fillColor = SKColor(red: 0.93, green: 0.55, blue: 0.20, alpha: 1)
+            statusPillLabel.fontColor = Art.cream
             statusPillLabel.text = "SCHROTFLINTE · NOCH 1 SCHUSS ÜBRIG! (● ○)"
         } else {
             statusPillNode.isHidden = true
+            statusPillLabel.fontColor = Art.cream
         }
 
         // 2×5 Illustrated Weapon Drawer
@@ -1503,29 +1669,49 @@ final class GameScene: SKScene {
                 slot.bg.zPosition = isSelected ? 5 : 1
                 slot.bg.alpha = canUse ? 1.0 : 0.34
                 if let count = engine.currentTeam.ammoCount(for: slot.kind) {
-                    slot.ammoLabel.text = "×\(count)"
+                    if count == 0 && slot.kind.isCrateSuperWeapon {
+                        slot.ammoLabel.text = "★0"
+                        slot.ammoLabel.fontColor = Art.sun
+                    } else {
+                        slot.ammoLabel.text = "×\(count)"
+                        slot.ammoLabel.fontColor = Art.cream
+                    }
                 } else {
                     slot.ammoLabel.text = "∞"
+                    slot.ammoLabel.fontColor = Art.cream
                 }
             }
             let highlighted = WeaponKind.allCases[engine.weaponBarSelectionIndex]
-            weaponBarSelectedTitle.text = "\(highlighted.name.uppercased())  ·  \(highlighted.tagBadge)"
+            let countZeroCrate = (engine.currentTeam.ammoCount(for: highlighted) == 0 && highlighted.isCrateSuperWeapon)
+            weaponBarSelectedTitle.text = countZeroCrate
+                ? "\(highlighted.name.uppercased())  ·  NUR IN GOLDENEN WAFFENKISTEN!"
+                : "\(highlighted.name.uppercased())  ·  \(highlighted.tagBadge)"
             weaponBarHintLabel.text = highlighted.hint
         }
 
         // Context-sensitive Controls Hint
-        if engine.isWeaponBarOpen {
-            controlsHintLabel.text = "← → ↑ ↓ Waffe wählen  ·  Auswahl drücken: Nehmen  ·  Play/Pause: Schließen"
+        if isCameraViewMode {
+            controlsHintLabel.text = "← → ↑ ↓ Karte erkunden  ·  Auswahl: Zoom wechseln  ·  Menü / Play-Pause: Zurück zum Wurm"
+        } else if engine.isWeaponBarOpen {
+            controlsHintLabel.text = "← → ↑ ↓ Waffe wählen  ·  Auswahl: Nehmen  ·  2× Play/Pause: Karten-Ansicht"
         } else if case .airstrikeAiming = engine.phase {
             controlsHintLabel.text = "← / → Ziel verschieben  ·  Auswahl drücken: 5 Raketen rufen!  ·  Play/Pause: Abbruch"
+        } else if case .teleportAiming = engine.phase {
+            controlsHintLabel.text = "← → ↑ ↓ Ziel wählen  ·  Auswahl drücken: Zauber-Sprung!  ·  Play/Pause: Abbruch"
+        } else if case .ropeSwinging = engine.phase {
+            controlsHintLabel.text = "← / → Schwingen  ·  ↑ / ↓ Seil kürzer/länger  ·  Auswahl: Abspringen!"
+        } else if case .jetpackFlying = engine.phase {
+            controlsHintLabel.text = "↑ Fliegen  ·  ← / → Steuern  ·  Auswahl: Landen (Zug läuft weiter!)"
+        } else if case .blowtorching = engine.phase {
+            controlsHintLabel.text = "↑ / ↓ Tunnel-Winkel lenken  ·  Auswahl: Aufhören"
         } else if case .retreat = engine.phase {
-            controlsHintLabel.text = "← / → Schnell wegrennen!  ·  2×↑ Hüpfen!"
+            controlsHintLabel.text = "← / → Schnell in Deckung laufen!  ·  2×↑ Hüpfen!"
         } else if case .projectileInFlight = engine.phase, engine.projectiles.contains(where: { $0.weapon == .sheep }) {
             controlsHintLabel.text = "Super-Schaf läuft!  ·  Auswahl drücken für Sofort-Knall!"
         } else if isGameControllerConnected {
-            controlsHintLabel.text = "Stick/Kreuz: Laufen & Zielen  ·  R2/X: Schießen  ·  A: Hüpfen  ·  B: Salto  ·  L1/R1/Y: Waffen"
+            controlsHintLabel.text = "Stick: Laufen & Zielen · R2/X: Schießen · A: Hüpfen · L1/R1/Y: Waffen · L2: Karte"
         } else {
-            controlsHintLabel.text = "Klicken: ←/→ Laufen · ↑/↓ Zielen · Auswahl halten: Schießen · 2×↑ Hüpfen · Play/Pause: Waffen"
+            controlsHintLabel.text = "Klicken: ←/→ Laufen · ↑/↓ Zielen · Auswahl: Schießen · 2×↑ Hüpfen · Play: Waffen · 2×Play: Karte"
         }
     }
 
@@ -1551,6 +1737,45 @@ final class GameScene: SKScene {
                 spawnFloatingText("FEUERFAUST!", at: CGPoint(x: pos.x, y: pos.y + 42), color: SKColor(red: 1.0, green: 0.62, blue: 0.18, alpha: 1), fontSize: 30)
                 shakeIntensity = max(shakeIntensity, 16)
                 SoundEngine.shared.play(.firePunch)
+
+            case .baseballHit(let pos, let didHitEnemy):
+                spawnSparkleBurst(at: pos, color: Art.sun)
+                spawnFloatingText(didHitEnemy ? "HOMERUN!" : "DANEBEN!", at: CGPoint(x: pos.x, y: pos.y + 44), color: didHitEnemy ? Art.sun : Art.cream, fontSize: didHitEnemy ? 34 : 24)
+                if didHitEnemy { shakeIntensity = max(shakeIntensity, 14) }
+                SoundEngine.shared.play(.baseballCrack)
+
+            case .ropeAttached(let anchor):
+                spawnSparkleBurst(at: anchor, color: Art.sun)
+                SoundEngine.shared.play(.ropeHook)
+
+            case .ropeMissed(let pos):
+                spawnFloatingText("KEIN HALT!", at: CGPoint(x: pos.x, y: pos.y + 42), color: Art.cream, fontSize: 22)
+
+            case .teleported(let from, let to):
+                spawnSparkleBurst(at: from, color: Art.lagoon)
+                spawnSparkleBurst(at: to, color: Art.sun)
+                spawnFloatingText("ZAPP!", at: CGPoint(x: to.x, y: to.y + 46), color: Art.sun, fontSize: 32)
+                SoundEngine.shared.play(.teleportWarp)
+
+            case .blowtorchSpark(let pos):
+                spawnSmokePuff(at: pos, radius: 9, alpha: 0.58)
+                let spark = SKShapeNode(circleOfRadius: 4)
+                spark.fillColor = Bool.random() ? Art.lagoon : Art.sun
+                spark.strokeColor = .clear
+                spark.position = pos
+                fxLayer.addChild(spark)
+                spark.run(.sequence([.group([.moveBy(x: CGFloat.random(in: -26...26), y: CGFloat.random(in: -14...26), duration: 0.22), .fadeOut(withDuration: 0.22)]), .removeFromParent()]))
+
+            case .jetpackThrust(let pos):
+                spawnSmokePuff(at: pos, radius: 10, alpha: 0.62)
+                let flame = SKShapeNode(circleOfRadius: 7)
+                flame.fillColor = Art.sun
+                flame.strokeColor = Art.coral
+                flame.lineWidth = 2
+                flame.position = pos
+                fxLayer.addChild(flame)
+                flame.run(.sequence([.group([.moveBy(x: 0, y: -22, duration: 0.18), .scale(to: 0.2, duration: 0.18), .fadeOut(withDuration: 0.18)]), .removeFromParent()]))
+                SoundEngine.shared.play(.jetpackPuff)
 
             case .sheepBaa(let pos):
                 spawnFloatingText("MÄH!!", at: CGPoint(x: pos.x, y: pos.y + 40), color: .white, fontSize: 28)
@@ -1586,6 +1811,12 @@ final class GameScene: SKScene {
                 let col = isHealth ? SKColor(red: 0.34, green: 0.96, blue: 0.56, alpha: 1) : SKColor(red: 1.0, green: 0.88, blue: 0.30, alpha: 1)
                 spawnSparkleBurst(at: pos, color: col)
                 spawnFloatingText(label, at: CGPoint(x: pos.x, y: pos.y + 28), color: col, fontSize: 26)
+                SoundEngine.shared.play(.cratePickup)
+
+            case .crateDropped(let pos, let isHealth):
+                let col = isHealth ? Art.leaf : Art.sun
+                let text = isHealth ? "MEDIZINKISTE!" : "WAFFENKISTE!"
+                spawnFloatingText(text, at: CGPoint(x: pos.x, y: min(WorldConstants.height - 120, pos.y - 40)), color: col, fontSize: 24)
                 SoundEngine.shared.play(.cratePickup)
 
             case .turnStarted:

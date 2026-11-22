@@ -158,7 +158,7 @@ struct SetupMenuView: View {
                         controlLine(icon: "arrow.up.and.down", text: "Hoch / Runter drücken: Zielen")
                         controlLine(icon: "flame.fill", text: "Auswahl halten & loslassen: Schießen")
                         controlLine(icon: "arrow.up.forward", text: "2× Hoch drücken (oder A): Sprung")
-                        controlLine(icon: "tray.full.fill", text: "Play/Pause (oder Y): 10 Waffen wählen")
+                        controlLine(icon: "tray.full.fill", text: "Play/Pause (oder Y): 15 Waffen & Tools")
                         controlLine(icon: "wind", text: "Schrotflinte hat 2 Schüsse · Wind beachten!")
                     }
                 }

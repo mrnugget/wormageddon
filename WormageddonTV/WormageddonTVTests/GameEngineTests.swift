@@ -187,20 +187,24 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(engine.shotgunShotsRemaining, 1)
         XCTAssertEqual(engine.phase, .playerControl)
 
-        // Fire Shotgun shot #2 -> should enter settling
+        // Fire Shotgun shot #2 -> should enter retreat phase (so player can run for cover!)
         var shot2 = InputSnapshot(); shot2.firePressed = true
         engine.update(dt: 1.0 / 60.0, input: &shot2)
         XCTAssertEqual(engine.shotgunShotsRemaining, 0)
-        if case .settling = engine.phase {} else {
-            XCTFail("Expected settling after 2nd shotgun shot, got \(engine.phase)")
+        if case .retreat = engine.phase {} else {
+            XCTFail("Expected retreat after 2nd shotgun shot, got \(engine.phase)")
         }
 
-        // Verify Dynamite triggers retreat phase on a fresh match
+        // Equip Dynamite via weapon cycling (skips 0-ammo crate super weapons)
         let dynEngine = GameEngine(config: config)
+        XCTAssertEqual(dynEngine.crates.count, 1, "A golden weapon crate should drop from the sky at match start")
+        XCTAssertEqual(dynEngine.currentTeam.ammoCount(for: .bananaBomb), 0, "Super weapons start at 0 until found in crates")
         var d0 = InputSnapshot(); d0.moveX = 0.5
         dynEngine.update(dt: 1.0 / 60.0, input: &d0)
-        var prev = InputSnapshot(); prev.prevWeaponPressed = true
-        dynEngine.update(dt: 1.0 / 60.0, input: &prev)
+        for _ in 0..<WeaponKind.allCases.count where dynEngine.selectedWeapon != .dynamite {
+            var nxt = InputSnapshot(); nxt.nextWeaponPressed = true
+            dynEngine.update(dt: 1.0 / 60.0, input: &nxt)
+        }
         XCTAssertEqual(dynEngine.selectedWeapon, .dynamite)
         var drop = InputSnapshot(); drop.firePressed = true
         dynEngine.update(dt: 1.0 / 60.0, input: &drop)
@@ -211,5 +215,52 @@ final class GameEngineTests: XCTestCase {
         // Verify world is 50% larger (2880 x 1500)
         XCTAssertEqual(engine.terrain.worldWidth, 2880)
         XCTAssertEqual(engine.terrain.worldHeight, 1500)
+    }
+
+    func testJumpLiftsWormAndJetpackTeleportWork() {
+        var config = MatchConfig()
+        config.playerCount = 2
+        config.wormsPerTeam = 2
+        config.mapStyle = .archipelago
+        config.seed = 9001
+        let engine = GameEngine(config: config)
+
+        // Dismiss banner
+        var d = InputSnapshot(); d.moveX = 0.5
+        engine.update(dt: 1.0 / 60.0, input: &d)
+
+        let startY = engine.activeWorm!.position.y
+        var jump = InputSnapshot(); jump.jumpPressed = true
+        engine.update(dt: 1.0 / 60.0, input: &jump)
+        XCTAssertFalse(engine.activeWorm!.isGrounded, "Worm must leave ground on jump frame 1")
+
+        var maxY = startY
+        for _ in 0..<45 {
+            var idle = InputSnapshot()
+            engine.update(dt: 1.0 / 60.0, input: &idle)
+            maxY = max(maxY, engine.activeWorm!.position.y)
+        }
+        XCTAssertGreaterThan(maxY - startY, 80, "Forward jump should gain significant height (> 80pt), got \(maxY - startY)")
+
+        // Test Jetpack flies up & returns to playerControl without ending turn
+        for _ in 0..<WeaponKind.allCases.count where engine.selectedWeapon != .jetpack {
+            var nxt = InputSnapshot(); nxt.nextWeaponPressed = true
+            engine.update(dt: 1.0 / 60.0, input: &nxt)
+        }
+        XCTAssertEqual(engine.selectedWeapon, .jetpack)
+        let teamBefore = engine.currentTeamIndex
+        var ignite = InputSnapshot(); ignite.firePressed = true
+        engine.update(dt: 1.0 / 60.0, input: &ignite)
+        if case .jetpackFlying = engine.phase {} else {
+            XCTFail("Expected jetpackFlying, got \(engine.phase)")
+        }
+        for _ in 0..<20 {
+            var up = InputSnapshot(); up.aimY = 1.0
+            engine.update(dt: 1.0 / 60.0, input: &up)
+        }
+        var land = InputSnapshot(); land.firePressed = true
+        engine.update(dt: 1.0 / 60.0, input: &land)
+        XCTAssertEqual(engine.phase, .playerControl)
+        XCTAssertEqual(engine.currentTeamIndex, teamBefore, "Jetpack should not end the player's turn")
     }
 }

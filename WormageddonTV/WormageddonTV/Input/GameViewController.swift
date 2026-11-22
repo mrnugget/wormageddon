@@ -11,9 +11,10 @@ final class GameViewController: GCEventViewController {
     private var heldPressTypes: Set<UIPress.PressType> = []
     private var heldKeyCodes: Set<UIKeyboardHIDUsage> = []
 
-    // Double-tap detection for Siri Remote jump / backflip
+    // Double-tap detection for Siri Remote jump / backflip / camera view
     private var lastUpPressTime: TimeInterval = 0
     private var lastDownPressTime: TimeInterval = 0
+    private var lastPlayPauseTime: TimeInterval = 0
 
     // Pending edge-triggered input pulses
     private var pendingInput = InputSnapshot()
@@ -25,6 +26,7 @@ final class GameViewController: GCEventViewController {
     private var prevGamepadY = false
     private var prevGamepadL1 = false
     private var prevGamepadR1 = false
+    private var prevGamepadL2 = false
     private var prevGamepadMenu = false
 
     private var activeMatchConfig: MatchConfig?
@@ -68,6 +70,10 @@ final class GameViewController: GCEventViewController {
         if isViewLoaded {
             presentNewMatch(config: config)
         }
+    }
+
+    func enterCameraViewMode() {
+        scene?.enterCameraViewMode()
     }
 
     func setGameplayPaused(_ paused: Bool) {
@@ -148,6 +154,7 @@ final class GameViewController: GCEventViewController {
         var anyY = false
         var anyL1 = false
         var anyR1 = false
+        var anyL2 = false
         var anyMenu = false
 
         for controller in GCController.controllers() {
@@ -174,13 +181,14 @@ final class GameViewController: GCEventViewController {
                 if pad.buttonY.isPressed { anyY = true }
                 if pad.leftShoulder.isPressed { anyL1 = true }
                 if pad.rightShoulder.isPressed { anyR1 = true }
+                if pad.leftTrigger.value > 0.35 { anyL2 = true }
                 if pad.buttonMenu.isPressed { anyMenu = true }
             }
             // Note: Deliberately ignoring touch-only microGamepad.dpad swipes/brushes so the
             // Siri Remote responds only to deliberate physical button clicks (UIPress).
         }
 
-        if anyGamepadFire || anyA || anyB || anyY || anyL1 || anyR1 || anyMenu {
+        if anyGamepadFire || anyA || anyB || anyY || anyL1 || anyR1 || anyL2 || anyMenu {
             scene?.isGameControllerConnected = true
         }
 
@@ -203,6 +211,9 @@ final class GameViewController: GCEventViewController {
 
         if anyR1 && !prevGamepadR1 { snap.nextWeaponPressed = true }
         prevGamepadR1 = anyR1
+
+        if anyL2 && !prevGamepadL2 { snap.toggleCameraViewPressed = true }
+        prevGamepadL2 = anyL2
 
         if anyMenu && !prevGamepadMenu { snap.pausePressed = true }
         prevGamepadMenu = anyMenu
@@ -245,6 +256,9 @@ final class GameViewController: GCEventViewController {
                 case .keyboardE:
                     pendingInput.nextWeaponPressed = true
                     handled = true
+                case .keyboardV, .keyboardM:
+                    pendingInput.toggleCameraViewPressed = true
+                    handled = true
                 case .keyboardReturnOrEnter:
                     pendingInput.firePressed = true
                     handled = true
@@ -265,7 +279,7 @@ final class GameViewController: GCEventViewController {
 
             case .upArrow:
                 heldPressTypes.insert(.upArrow)
-                if now - lastUpPressTime < 0.28 {
+                if now - lastUpPressTime < 0.42 {
                     pendingInput.jumpPressed = true
                     lastUpPressTime = 0
                 } else {
@@ -275,7 +289,7 @@ final class GameViewController: GCEventViewController {
 
             case .downArrow:
                 heldPressTypes.insert(.downArrow)
-                if now - lastDownPressTime < 0.28 {
+                if now - lastDownPressTime < 0.42 {
                     pendingInput.backflipPressed = true
                     lastDownPressTime = 0
                 } else {
@@ -289,7 +303,13 @@ final class GameViewController: GCEventViewController {
                 handled = true
 
             case .playPause:
-                pendingInput.toggleWeaponBarPressed = true
+                if now - lastPlayPauseTime < 0.42 {
+                    pendingInput.toggleCameraViewPressed = true
+                    lastPlayPauseTime = 0
+                } else {
+                    pendingInput.toggleWeaponBarPressed = true
+                    lastPlayPauseTime = now
+                }
                 handled = true
 
             case .menu:

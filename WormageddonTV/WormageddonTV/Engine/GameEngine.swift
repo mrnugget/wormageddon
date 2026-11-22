@@ -91,6 +91,10 @@ enum TurnPhase: Equatable {
     case playerControl
     case charging(power: CGFloat)
     case airstrikeAiming(targetX: CGFloat)
+    case teleportAiming(target: CGPoint)
+    case ropeSwinging(anchor: CGPoint, length: CGFloat)
+    case jetpackFlying(fuel: CGFloat)
+    case blowtorching(remaining: TimeInterval)
     case retreat(remaining: TimeInterval)
     case projectileInFlight
     case settling(remaining: TimeInterval)
@@ -102,6 +106,12 @@ enum GameEvent {
     case shotgunTracer(from: CGPoint, to: CGPoint)
     case shotgunSecondShotReady(position: CGPoint)
     case firePunchBurst(position: CGPoint, facing: CGFloat)
+    case baseballHit(position: CGPoint, didHitEnemy: Bool)
+    case ropeAttached(anchor: CGPoint)
+    case ropeMissed(position: CGPoint)
+    case teleported(from: CGPoint, to: CGPoint)
+    case blowtorchSpark(position: CGPoint)
+    case jetpackThrust(position: CGPoint)
     case sheepBaa(position: CGPoint)
     case dynamitePlaced(position: CGPoint)
     case wormDamaged(wormID: Int, amount: Int, position: CGPoint)
@@ -110,6 +120,7 @@ enum GameEvent {
     case projectileFired(weapon: WeaponKind, position: CGPoint)
     case grenadeBounce(position: CGPoint)
     case crateCollected(position: CGPoint, label: String, isHealth: Bool)
+    case crateDropped(position: CGPoint, isHealth: Bool)
     case turnStarted(teamIndex: Int, wormName: String)
     case suddenDeathTriggered(waterY: CGFloat)
     case holyChoir(position: CGPoint)
@@ -143,6 +154,8 @@ final class GameEngine {
     private var nextCrateID: Int = 1
     private var weaponBarNavCooldown: TimeInterval = 0
     private var airstrikeFromLeft: Bool = true
+    private var blowtorchCarveAccum: TimeInterval = 0
+    private var jetpackPuffAccum: TimeInterval = 0
     private var pendingEvents: [GameEvent] = []
 
     var activeWorm: WormState? {
@@ -161,6 +174,7 @@ final class GameEngine {
 
         setupTeamsAndWorms()
         rollWind()
+        spawnSupplyCrate(forceWeapon: true)
         startTurn(teamIndex: 0, isFirstTurn: true)
     }
 
@@ -299,6 +313,18 @@ final class GameEngine {
         case .airstrikeAiming(let targetX):
             handleAirstrikeAiming(dt: dt, targetX: targetX, input: &input)
 
+        case .teleportAiming(let target):
+            handleTeleportAiming(dt: dt, target: target, input: &input)
+
+        case .ropeSwinging(let anchor, let length):
+            handleRopeSwinging(dt: dt, anchor: anchor, length: length, input: &input)
+
+        case .jetpackFlying(let fuel):
+            handleJetpackFlying(dt: dt, fuel: fuel, input: &input)
+
+        case .blowtorching(let remaining):
+            handleBlowtorching(dt: dt, remaining: remaining, input: &input)
+
         case .retreat(let remaining):
             handleRetreatMovement(dt: dt, input: &input)
             if remaining - dt <= 0 {
@@ -377,10 +403,11 @@ final class GameEngine {
             }
         }
 
-        // 2×5 Weapon Drawer navigation (Left/Right columns, Up/Down rows)
+        // 3×5 Weapon Drawer navigation (Left/Right columns, Up/Down rows)
         if isWeaponBarOpen {
             let cols = 5
             let total = WeaponKind.allCases.count
+            let rows = (total + cols - 1) / cols
             if weaponBarNavCooldown <= 0 {
                 if abs(input.moveX) > 0.35 {
                     let step = input.moveX > 0 ? 1 : -1
@@ -389,8 +416,11 @@ final class GameEngine {
                     weaponBarSelectionIndex = min(total - 1, row * cols + col)
                     weaponBarNavCooldown = 0.20
                 } else if abs(input.aimY) > 0.35 {
-                    let nextIdx = (weaponBarSelectionIndex + cols) % total
-                    weaponBarSelectionIndex = nextIdx
+                    let rowDelta = input.aimY > 0 ? -1 : 1 // Up goes to row above, Down goes to row below
+                    let curRow = weaponBarSelectionIndex / cols
+                    let col = weaponBarSelectionIndex % cols
+                    let nextRow = (curRow + rowDelta + rows) % rows
+                    weaponBarSelectionIndex = min(total - 1, nextRow * cols + col)
                     weaponBarNavCooldown = 0.22
                 }
             }
@@ -402,6 +432,9 @@ final class GameEngine {
                     if chosen == .airstrike {
                         let startX = activeWorm?.position.x ?? WorldConstants.width * 0.5
                         phase = .airstrikeAiming(targetX: startX)
+                    } else if chosen == .teleport {
+                        let startPos = activeWorm?.position ?? CGPoint(x: WorldConstants.width * 0.5, y: WorldConstants.height * 0.5)
+                        phase = .teleportAiming(target: CGPoint(x: startPos.x, y: min(WorldConstants.height - 80, startPos.y + 80)))
                     }
                 }
             }
@@ -434,6 +467,9 @@ final class GameEngine {
             switch selectedWeapon {
             case .airstrike:
                 phase = .airstrikeAiming(targetX: worms[wormIdx].position.x)
+            case .teleport:
+                let p = worms[wormIdx].position
+                phase = .teleportAiming(target: CGPoint(x: p.x, y: min(WorldConstants.height - 80, p.y + 80)))
             case .shotgun:
                 fireShotgun(from: wormIdx)
             case .sheep:
@@ -442,6 +478,14 @@ final class GameEngine {
                 executeFirePunch(from: wormIdx)
             case .dynamite:
                 placeDynamite(from: wormIdx)
+            case .rope:
+                fireRope(from: wormIdx)
+            case .jetpack:
+                startJetpack(from: wormIdx)
+            case .baseballBat:
+                swingBaseballBat(from: wormIdx)
+            case .blowtorch:
+                startBlowtorch(from: wormIdx)
             case .bazooka, .grenade, .clusterBomb, .holyGrenade, .bananaBomb:
                 phase = .charging(power: 0.14)
             }
@@ -461,18 +505,23 @@ final class GameEngine {
             worms[wormIdx].facing = dir
             walkWorm(at: wormIdx, direction: dir, speedScale: min(1.0, abs(input.moveX)), dt: dt)
         } else if abs(input.moveX) > 0.2 {
-            worms[wormIdx].facing = input.moveX > 0 ? 1 : -1
+            // Gentle mid-air steering so jumps land cleanly on ledges & forks
+            let dir: CGFloat = input.moveX > 0 ? 1 : -1
+            worms[wormIdx].facing = dir
+            worms[wormIdx].velocity.dx = max(-300, min(300, worms[wormIdx].velocity.dx + input.moveX * 140 * CGFloat(dt)))
         }
 
         if input.jumpPressed && worms[wormIdx].isGrounded {
             let dir = worms[wormIdx].facing
-            worms[wormIdx].velocity = CGVector(dx: dir * 205, dy: 365)
+            worms[wormIdx].position.y += 5
+            worms[wormIdx].velocity = CGVector(dx: dir * 245, dy: 425)
             worms[wormIdx].isGrounded = false
             worms[wormIdx].fallStartY = worms[wormIdx].position.y
             pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: false))
         } else if input.backflipPressed && worms[wormIdx].isGrounded {
             let dir = worms[wormIdx].facing
-            worms[wormIdx].velocity = CGVector(dx: -dir * 115, dy: 455)
+            worms[wormIdx].position.y += 6
+            worms[wormIdx].velocity = CGVector(dx: -dir * 135, dy: 535)
             worms[wormIdx].isGrounded = false
             worms[wormIdx].fallStartY = worms[wormIdx].position.y
             pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: true))
@@ -638,7 +687,7 @@ final class GameEngine {
             pendingEvents.append(.shotgunSecondShotReady(position: worm.position))
             phase = .playerControl
         } else {
-            phase = .settling(remaining: 0.95)
+            phase = .retreat(remaining: 2.5)
         }
     }
 
@@ -714,7 +763,7 @@ final class GameEngine {
             }
         }
 
-        phase = .settling(remaining: 1.0)
+        phase = .retreat(remaining: 2.5)
     }
 
     private func placeDynamite(from wormIdx: Int) {
@@ -734,8 +783,294 @@ final class GameEngine {
         nextProjectileID += 1
         projectiles.append(proj)
         pendingEvents.append(.dynamitePlaced(position: dropPos))
-        // Give player 3.5 seconds to run & jump away from the ticking dynamite!
         phase = .retreat(remaining: WorldConstants.retreatDuration)
+    }
+
+    // MARK: - Hedgewars Utilities & New Weapons (Rope, Jetpack, Baseball Bat, Blowtorch, Teleport)
+
+    private func fireRope(from wormIdx: Int) {
+        let worm = worms[wormIdx]
+        let dir = worm.aimDirection
+        let start = CGPoint(x: worm.position.x, y: worm.position.y + 6)
+        let maxRange: CGFloat = 560
+        let steps = 140
+
+        for i in 6...steps {
+            let dist = maxRange * (CGFloat(i) / CGFloat(steps))
+            let p = CGPoint(x: start.x + dir.dx * dist, y: start.y + dir.dy * dist)
+            if p.x < 10 || p.x > WorldConstants.width - 10 || p.y < waterY || p.y > WorldConstants.height - 10 {
+                break
+            }
+            if terrain.isSolid(worldPoint: p) {
+                worms[wormIdx].isGrounded = false
+                worms[wormIdx].position.y += 4
+                worms[wormIdx].velocity.dy = max(worms[wormIdx].velocity.dy, 120)
+                worms[wormIdx].fallStartY = nil
+                let length = max(56, min(maxRange, dist))
+                pendingEvents.append(.ropeAttached(anchor: p))
+                phase = .ropeSwinging(anchor: p, length: length)
+                return
+            }
+        }
+        pendingEvents.append(.ropeMissed(position: worm.position))
+    }
+
+    private func handleRopeSwinging(dt: TimeInterval, anchor: CGPoint, length: CGFloat, input: inout InputSnapshot) {
+        turnTimeRemaining = max(0, turnTimeRemaining - dt)
+        if turnTimeRemaining <= 0 {
+            phase = .settling(remaining: 0.6)
+            return
+        }
+
+        guard let idx = worms.firstIndex(where: { $0.id == activeWormID }), worms[idx].isAlive else {
+            phase = .settling(remaining: 0.8)
+            return
+        }
+
+        // Release rope on Select or Play/Pause (utility — does NOT end turn!)
+        if input.firePressed || input.toggleWeaponBarPressed {
+            worms[idx].velocity.dy += 110
+            worms[idx].fallStartY = worms[idx].position.y
+            phase = .playerControl
+            if input.toggleWeaponBarPressed {
+                isWeaponBarOpen = true
+                weaponBarSelectionIndex = selectedWeapon.rawValue
+            }
+            return
+        }
+
+        // Reel rope shorter / longer with Up / Down
+        let reelSpeed: CGFloat = 240
+        let nextLength = max(52, min(560, length - input.aimY * reelSpeed * CGFloat(dt)))
+
+        // Swing pump with Left / Right
+        if abs(input.moveX) > 0.2 {
+            worms[idx].facing = input.moveX > 0 ? 1 : -1
+            worms[idx].velocity.dx += input.moveX * 480 * CGFloat(dt)
+        }
+
+        // Gentle velocity damping & pendulum tether constraint
+        worms[idx].velocity.dx *= pow(0.88, CGFloat(dt))
+        worms[idx].velocity.dy *= pow(0.94, CGFloat(dt))
+        worms[idx].isGrounded = false
+        worms[idx].fallStartY = nil
+
+        let dx = worms[idx].position.x - anchor.x
+        let dy = worms[idx].position.y - anchor.y
+        let dist = max(1, hypot(dx, dy))
+        if dist >= nextLength {
+            let nx = dx / dist
+            let ny = dy / dist
+            let targetPos = CGPoint(x: anchor.x + nx * nextLength, y: anchor.y + ny * nextLength)
+            if !terrain.isSolidCircle(center: targetPos, radius: WorldConstants.wormRadius * 0.72) {
+                worms[idx].position = targetPos
+            }
+            // Strip outward radial velocity so worm swings in a crisp arc
+            let vr = worms[idx].velocity.dx * nx + worms[idx].velocity.dy * ny
+            if vr > 0 {
+                worms[idx].velocity.dx -= vr * nx
+                worms[idx].velocity.dy -= vr * ny
+            }
+        }
+
+        phase = .ropeSwinging(anchor: anchor, length: nextLength)
+    }
+
+    private func startJetpack(from wormIdx: Int) {
+        consumeAmmo(.jetpack)
+        worms[wormIdx].isGrounded = false
+        worms[wormIdx].position.y += 5
+        worms[wormIdx].velocity.dy = 170
+        worms[wormIdx].fallStartY = nil
+        jetpackPuffAccum = 0
+        pendingEvents.append(.jetpackThrust(position: worms[wormIdx].position))
+        phase = .jetpackFlying(fuel: 1.0)
+    }
+
+    private func handleJetpackFlying(dt: TimeInterval, fuel: CGFloat, input: inout InputSnapshot) {
+        turnTimeRemaining = max(0, turnTimeRemaining - dt)
+        if turnTimeRemaining <= 0 {
+            phase = .settling(remaining: 0.6)
+            return
+        }
+
+        guard let idx = worms.firstIndex(where: { $0.id == activeWormID }), worms[idx].isAlive else {
+            phase = .settling(remaining: 0.8)
+            return
+        }
+
+        // Cut jetpack anytime with Select or Play/Pause (utility — does NOT end turn!)
+        if input.firePressed || input.toggleWeaponBarPressed {
+            worms[idx].fallStartY = worms[idx].position.y
+            phase = .playerControl
+            if input.toggleWeaponBarPressed {
+                isWeaponBarOpen = true
+                weaponBarSelectionIndex = selectedWeapon.rawValue
+            }
+            return
+        }
+
+        var remainingFuel = fuel
+        var thrusting = false
+
+        if input.aimY > 0.15 {
+            worms[idx].velocity.dy = min(340, worms[idx].velocity.dy + 1240 * CGFloat(dt))
+            worms[idx].isGrounded = false
+            remainingFuel -= CGFloat(dt) * 0.18
+            thrusting = true
+        } else if input.aimY < -0.15 {
+            worms[idx].velocity.dy = max(-220, worms[idx].velocity.dy - 260 * CGFloat(dt))
+        } else {
+            // Gentle hover assist so 5-year-olds don't plummet between button presses!
+            worms[idx].velocity.dy = max(-180, worms[idx].velocity.dy + 360 * CGFloat(dt))
+            remainingFuel -= CGFloat(dt) * 0.06
+        }
+
+        if abs(input.moveX) > 0.15 {
+            worms[idx].facing = input.moveX > 0 ? 1 : -1
+            worms[idx].velocity.dx = max(-290, min(290, worms[idx].velocity.dx + input.moveX * 780 * CGFloat(dt)))
+            remainingFuel -= CGFloat(dt) * 0.10
+            thrusting = true
+        } else {
+            worms[idx].velocity.dx *= pow(0.25, CGFloat(dt))
+        }
+
+        worms[idx].fallStartY = nil
+        jetpackPuffAccum += dt
+        if thrusting && jetpackPuffAccum >= 0.12 {
+            jetpackPuffAccum = 0
+            pendingEvents.append(.jetpackThrust(position: CGPoint(x: worms[idx].position.x, y: worms[idx].position.y - 12)))
+        }
+
+        if remainingFuel <= 0 {
+            worms[idx].fallStartY = worms[idx].position.y
+            phase = .playerControl
+        } else {
+            phase = .jetpackFlying(fuel: remainingFuel)
+        }
+    }
+
+    private func swingBaseballBat(from wormIdx: Int) {
+        let worm = worms[wormIdx]
+        let dir = worm.facing
+        let aimAngle = max(0.22, worm.aimAngle) // Always launches slightly upward for epic homeruns!
+        let worldAngle = dir >= 0 ? aimAngle : (.pi - aimAngle)
+        let launchDir = CGVector(dx: cos(worldAngle), dy: sin(worldAngle))
+        let strikeCenter = CGPoint(x: worm.position.x + dir * 26, y: worm.position.y + 4)
+
+        var hitAny = false
+        for i in worms.indices where i != wormIdx && worms[i].isAlive {
+            let dist = hypot(worms[i].position.x - strikeCenter.x, worms[i].position.y - strikeCenter.y)
+            if dist <= 74 {
+                hitAny = true
+                applyDamage(to: i, amount: WeaponKind.baseballBat.maxDamage, attackerTeam: worm.teamIndex)
+                worms[i].position.y += 5
+                worms[i].velocity = CGVector(
+                    dx: launchDir.dx * WeaponKind.baseballBat.knockbackSpeed,
+                    dy: max(280, launchDir.dy * WeaponKind.baseballBat.knockbackSpeed)
+                )
+                worms[i].isGrounded = false
+                worms[i].fallStartY = worms[i].position.y
+            }
+        }
+
+        pendingEvents.append(.baseballHit(position: strikeCenter, didHitEnemy: hitAny))
+        phase = .retreat(remaining: 2.5)
+    }
+
+    private func startBlowtorch(from wormIdx: Int) {
+        consumeAmmo(.blowtorch)
+        blowtorchCarveAccum = 0
+        worms[wormIdx].aimAngle = max(-0.55, min(0.75, worms[wormIdx].aimAngle))
+        pendingEvents.append(.blowtorchSpark(position: worms[wormIdx].position))
+        phase = .blowtorching(remaining: 1.9)
+    }
+
+    private func handleBlowtorching(dt: TimeInterval, remaining: TimeInterval, input: inout InputSnapshot) {
+        guard let idx = worms.firstIndex(where: { $0.id == activeWormID }), worms[idx].isAlive else {
+            phase = .settling(remaining: 0.8)
+            return
+        }
+
+        if input.firePressed || remaining - dt <= 0 {
+            phase = .retreat(remaining: 1.8)
+            return
+        }
+
+        // Allow steering digging angle gently while tunneling
+        if abs(input.aimY) > 0.15 {
+            worms[idx].aimAngle = max(-0.55, min(0.75, worms[idx].aimAngle + input.aimY * 1.1 * CGFloat(dt)))
+        }
+
+        let dir = worms[idx].aimDirection
+        let digSpeed: CGFloat = 104
+        let nextPos = CGPoint(
+            x: max(36, min(WorldConstants.width - 36, worms[idx].position.x + dir.dx * digSpeed * CGFloat(dt))),
+            y: max(waterY + 12, min(WorldConstants.height - 40, worms[idx].position.y + dir.dy * digSpeed * CGFloat(dt)))
+        )
+
+        blowtorchCarveAccum += dt
+        if blowtorchCarveAccum >= 0.06 {
+            blowtorchCarveAccum = 0
+            let tip = CGPoint(x: nextPos.x + dir.dx * 16, y: nextPos.y + dir.dy * 16)
+            terrain.carveCrater(worldCenter: tip, worldRadius: WeaponKind.blowtorch.explosionRadius)
+            pendingEvents.append(.blowtorchSpark(position: tip))
+
+            // Scorch any enemy caught in front of the torch!
+            for i in worms.indices where i != idx && worms[i].isAlive {
+                if hypot(worms[i].position.x - tip.x, worms[i].position.y - tip.y) < 34 {
+                    applyDamage(to: i, amount: 4, attackerTeam: worms[idx].teamIndex)
+                    worms[i].velocity = CGVector(dx: dir.dx * 210, dy: 180)
+                    worms[i].isGrounded = false
+                }
+            }
+        }
+
+        worms[idx].position = nextPos
+        worms[idx].velocity = .zero
+        worms[idx].isGrounded = true
+        worms[idx].walkPhase += CGFloat(dt) * 14.0
+        phase = .blowtorching(remaining: remaining - dt)
+    }
+
+    func isValidTeleportTarget(_ point: CGPoint) -> Bool {
+        guard point.x > 40, point.x < WorldConstants.width - 40,
+              point.y > waterY + 26, point.y < WorldConstants.height - 40 else { return false }
+        return !terrain.isSolidCircle(center: point, radius: WorldConstants.wormRadius + 2)
+    }
+
+    private func handleTeleportAiming(dt: TimeInterval, target: CGPoint, input: inout InputSnapshot) {
+        turnTimeRemaining = max(0, turnTimeRemaining - dt)
+        if turnTimeRemaining <= 0 {
+            phase = .settling(remaining: 0.5)
+            return
+        }
+
+        if input.toggleWeaponBarPressed {
+            phase = .playerControl
+            isWeaponBarOpen = true
+            weaponBarSelectionIndex = selectedWeapon.rawValue
+            return
+        }
+
+        let speed: CGFloat = 780
+        let nx = max(60, min(WorldConstants.width - 60, target.x + input.moveX * speed * CGFloat(dt)))
+        let ny = max(waterY + 34, min(WorldConstants.height - 60, target.y + input.aimY * speed * CGFloat(dt)))
+        let nextTarget = CGPoint(x: nx, y: ny)
+
+        if input.firePressed, isValidTeleportTarget(nextTarget),
+           let idx = worms.firstIndex(where: { $0.id == activeWormID }), worms[idx].isAlive {
+            let oldPos = worms[idx].position
+            consumeAmmo(.teleport)
+            worms[idx].position = nextTarget
+            worms[idx].velocity = .zero
+            worms[idx].isGrounded = false
+            worms[idx].fallStartY = nil
+            pendingEvents.append(.teleported(from: oldPos, to: nextTarget))
+            phase = .settling(remaining: 1.0)
+        } else {
+            phase = .teleportAiming(target: nextTarget)
+        }
     }
 
     // MARK: - Worm Movement & Physics
@@ -826,6 +1161,12 @@ final class GameEngine {
                 if terrain.isSolidCircle(center: nextPos, radius: r * 0.85) {
                     let normal = terrain.surfaceNormal(at: nextPos)
                     let vn = worms[i].velocity.dx * normal.dx + worms[i].velocity.dy * normal.dy
+
+                    // Moving away from terrain (e.g. first frames of a jump): don't snap back to grounded!
+                    if vn > 0 {
+                        worms[i].position = nextPos
+                        continue
+                    }
 
                     if vn < -220 {
                         let restitution: CGFloat = 0.32
@@ -1182,25 +1523,49 @@ final class GameEngine {
         }
     }
 
-    // MARK: - Supply Crates
+    // MARK: - Supply Crates (Sky Drops for Super Weapons & Health!)
 
     private func maybeSpawnCrate() {
-        guard turnNumber > 1, turnNumber % 2 == 0, crates.count < 3 else { return }
-        let x = rng.nextCGFloat(in: 280...(WorldConstants.width - 280))
+        guard crates.count < 4 else { return }
+        spawnSupplyCrate(forceWeapon: false)
+    }
+
+    private func spawnSupplyCrate(forceWeapon: Bool) {
+        // Pick an X position above actual solid land so crates land on islands/ledges rather than open sea
+        var chosenX = rng.nextCGFloat(in: 280...(WorldConstants.width - 280))
+        for _ in 0..<14 {
+            let candidate = rng.nextCGFloat(in: 240...(WorldConstants.width - 240))
+            if let sy = terrain.surfaceY(atWorldX: candidate), sy > waterY + 50 {
+                chosenX = candidate
+                break
+            }
+        }
+
+        let isHealth = !forceWeapon && rng.nextDouble() < 0.30
         let kind: CrateKind
-        if rng.nextDouble() < 0.50 {
-            kind = .health(amount: 25)
+        if isHealth {
+            kind = .health(amount: 30)
         } else {
-            let specials: [WeaponKind] = [.clusterBomb, .airstrike, .holyGrenade, .bananaBomb, .sheep, .dynamite]
-            let chosen = specials[Int(rng.nextUInt64() % UInt64(specials.count))]
+            // Heavily weighted toward the 4 crate-only Super Weapons!
+            let pool: [WeaponKind] = [
+                .holyGrenade, .holyGrenade,
+                .bananaBomb, .bananaBomb,
+                .sheep, .sheep,
+                .airstrike, .airstrike,
+                .jetpack, .teleport, .dynamite, .clusterBomb
+            ]
+            let chosen = pool[Int(rng.nextUInt64() % UInt64(pool.count))]
             kind = .weapon(chosen)
         }
+
+        let spawnPos = CGPoint(x: chosenX, y: WorldConstants.height - 60)
         crates.append(CrateState(
             id: nextCrateID,
             kind: kind,
-            position: CGPoint(x: x, y: WorldConstants.height - 40)
+            position: spawnPos
         ))
         nextCrateID += 1
+        pendingEvents.append(.crateDropped(position: spawnPos, isHealth: isHealth))
     }
 
     private func updateCratesPhysics(dt: TimeInterval) {

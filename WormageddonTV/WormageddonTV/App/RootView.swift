@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var config = MatchConfig()
     @State private var screen: AppScreenState = .setup
     @State private var matchToken = UUID()
+    @State private var cameraViewRequestToken = UUID()
 
     var body: some View {
         ZStack {
@@ -23,6 +24,7 @@ struct RootView: View {
                 GameContainerView(
                     config: config,
                     matchToken: matchToken,
+                    cameraViewRequestToken: cameraViewRequestToken,
                     isPaused: isOverlayVisible,
                     onPauseRequested: {
                         if case .playing = screen {
@@ -38,6 +40,10 @@ struct RootView: View {
                 if case .paused = screen {
                     PauseOverlayView(
                         onResume: { screen = .playing },
+                        onInspectMap: {
+                            cameraViewRequestToken = UUID()
+                            screen = .playing
+                        },
                         onRestart: { startNewMatch() },
                         onQuitToMenu: { screen = .setup }
                     )

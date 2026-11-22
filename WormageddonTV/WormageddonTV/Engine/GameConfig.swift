@@ -246,6 +246,11 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
     case sheep = 7
     case firePunch = 8
     case dynamite = 9
+    case rope = 10
+    case jetpack = 11
+    case baseballBat = 12
+    case blowtorch = 13
+    case teleport = 14
 
     var id: Int { rawValue }
 
@@ -261,6 +266,11 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return "Super-Schaf"
         case .firePunch: return "Feuerfaust"
         case .dynamite: return "Dynamit"
+        case .rope: return "Ninja-Seil"
+        case .jetpack: return "Jetpack"
+        case .baseballBat: return "Baseballschläger"
+        case .blowtorch: return "Schweißbrenner"
+        case .teleport: return "Teleport"
         }
     }
 
@@ -276,6 +286,11 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return "weapon_sheep"
         case .firePunch: return "weapon_firepunch"
         case .dynamite: return "weapon_dynamite"
+        case .rope: return "weapon_rope"
+        case .jetpack: return "weapon_jetpack"
+        case .baseballBat: return "weapon_baseball"
+        case .blowtorch: return "weapon_blowtorch"
+        case .teleport: return "weapon_teleport"
         }
     }
 
@@ -291,6 +306,11 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return "HÜPFT!"
         case .firePunch: return "NAHKAMPF"
         case .dynamite: return "WEGRENNEN!"
+        case .rope: return "SCHWINGEN"
+        case .jetpack: return "FLIEGEN!"
+        case .baseballBat: return "HOMERUN!"
+        case .blowtorch: return "TUNNELN"
+        case .teleport: return "ZAUBERN"
         }
     }
 
@@ -306,18 +326,28 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return "Hoppelt los! Auswahl drücken für Sofort-Knall (oder nach 5,5s)"
         case .firePunch: return "Feuriger Kinnhaken! Schleudert nahe Gegner weit weg"
         case .dynamite: return "Vor dir ablegen (4s Zünder) – dann 3,5s schnell wegrennen!"
+        case .rope: return "Nach oben zielen & Auswahl: Haken schießen, schwingen – beendet Zug NICHT!"
+        case .jetpack: return "Frei über die Insel fliegen (← → ↑) – beendet deinen Zug NICHT!"
+        case .baseballBat: return "Winkel zielen & Auswahl: Schleudert nahe Gegner im hohen Bogen ins Meer!"
+        case .blowtorch: return "Gräbt einen Tunnel direkt durch Käse, Torte & Felsen!"
+        case .teleport: return "Ziel frei wählen (← → ↑ ↓) & Auswahl: Zauber-Sprung an jeden Ort!"
         }
     }
 
     var startingAmmo: Int? {
         switch self {
-        case .bazooka, .grenade, .shotgun, .firePunch: return nil // Unendlich
-        case .clusterBomb: return 3
-        case .airstrike: return 2
-        case .sheep: return 2
-        case .dynamite: return 2
-        case .holyGrenade: return 1
-        case .bananaBomb: return 1
+        case .bazooka, .grenade, .shotgun, .firePunch, .rope, .baseballBat: return nil // Unendlich
+        case .clusterBomb, .blowtorch: return 2
+        case .dynamite, .jetpack, .teleport: return 1
+        // Super-Waffen starten bei 0 und fallen in goldenen Waffenkisten vom Himmel!
+        case .airstrike, .holyGrenade, .bananaBomb, .sheep: return 0
+        }
+    }
+
+    var isCrateSuperWeapon: Bool {
+        switch self {
+        case .airstrike, .holyGrenade, .bananaBomb, .sheep: return true
+        default: return false
         }
     }
 
@@ -331,7 +361,7 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
     var usesChargePower: Bool {
         switch self {
         case .bazooka, .grenade, .clusterBomb, .holyGrenade, .bananaBomb: return true
-        case .shotgun, .airstrike, .sheep, .firePunch, .dynamite: return false
+        default: return false
         }
     }
 
@@ -354,6 +384,8 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return 94
         case .firePunch: return 36
         case .dynamite: return 104
+        case .blowtorch: return 27
+        case .rope, .jetpack, .baseballBat, .teleport: return 0
         }
     }
 
@@ -369,6 +401,9 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return 62
         case .firePunch: return 35
         case .dynamite: return 68
+        case .baseballBat: return 30
+        case .blowtorch: return 18
+        case .rope, .jetpack, .teleport: return 0
         }
     }
 
@@ -384,6 +419,9 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return 540
         case .firePunch: return 620
         case .dynamite: return 580
+        case .baseballBat: return 760
+        case .blowtorch: return 220
+        case .rope, .jetpack, .teleport: return 0
         }
     }
 
@@ -399,6 +437,11 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .sheep: return SKColor(red: 0.98, green: 0.56, blue: 0.72, alpha: 1)
         case .firePunch: return SKColor(red: 1.00, green: 0.42, blue: 0.16, alpha: 1)
         case .dynamite: return SKColor(red: 0.96, green: 0.24, blue: 0.26, alpha: 1)
+        case .rope: return SKColor(red: 1.00, green: 0.79, blue: 0.29, alpha: 1)
+        case .jetpack: return SKColor(red: 0.17, green: 0.70, blue: 0.75, alpha: 1)
+        case .baseballBat: return SKColor(red: 0.94, green: 0.62, blue: 0.28, alpha: 1)
+        case .blowtorch: return SKColor(red: 0.30, green: 0.78, blue: 0.96, alpha: 1)
+        case .teleport: return SKColor(red: 0.52, green: 0.86, blue: 0.98, alpha: 1)
         }
     }
 }
@@ -414,8 +457,8 @@ enum WorldConstants {
     static let gravity: CGFloat = -680
     static let maxWindAccel: CGFloat = 310
     static let wormRadius: CGFloat = 16
-    static let wormWalkSpeed: CGFloat = 122
-    static let wormMaxStepUp: CGFloat = 15
+    static let wormWalkSpeed: CGFloat = 148
+    static let wormMaxStepUp: CGFloat = 20
     static let retreatDuration: TimeInterval = 3.5
     static let suddenDeathStartTurn: Int = 16
     static let suddenDeathWaterStep: CGFloat = 32
