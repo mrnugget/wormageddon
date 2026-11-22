@@ -4,65 +4,36 @@ struct SetupMenuView: View {
     @Binding var config: MatchConfig
     let onStart: () -> Void
 
-    private var themeColors: [Color] {
+    /// Mood wash laid over the painted hero so the menu previews the chosen sky.
+    private var moodWash: Color {
         switch config.mapTheme {
-        case .alpineSunset:
-            return [
-                Color(red: 0.11, green: 0.13, blue: 0.32),
-                Color(red: 0.42, green: 0.22, blue: 0.40),
-                Color(red: 0.78, green: 0.39, blue: 0.30)
-            ]
-        case .emeraldIsles:
-            return [
-                Color(red: 0.08, green: 0.32, blue: 0.64),
-                Color(red: 0.16, green: 0.50, blue: 0.72),
-                Color(red: 0.22, green: 0.62, blue: 0.68)
-            ]
-        case .volcanicDusk:
-            return [
-                Color(red: 0.07, green: 0.08, blue: 0.22),
-                Color(red: 0.24, green: 0.13, blue: 0.38),
-                Color(red: 0.58, green: 0.25, blue: 0.40)
-            ]
+        case .alpineSunset: return Color(red: 0.36, green: 0.18, blue: 0.30)
+        case .emeraldIsles: return Color(red: 0.08, green: 0.38, blue: 0.56)
+        case .volcanicDusk: return Color(red: 0.10, green: 0.08, blue: 0.28)
         }
     }
 
     var body: some View {
         ZStack {
-            // Live scenic sky reacting to chosen theme
+            // Painted island hero (same Painter style as every in-game asset)
+            Image("menu_hero")
+                .resizable()
+                .scaledToFill()
+                .ignoresSafeArea()
+
+            Rectangle()
+                .fill(moodWash)
+                .blendMode(.multiply)
+                .opacity(config.mapTheme == .emeraldIsles ? 0.35 : 0.55)
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.45), value: config.mapTheme)
+
+            // Darken the left side so the cream title and options read clearly
             LinearGradient(
-                colors: themeColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [Color(art: Art.inkDeep).opacity(0.78), Color(art: Art.inkDeep).opacity(0.35), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
             )
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.45), value: config.mapTheme)
-
-            // Decorative glowing sun/moon + distant island horizon
-            GeometryReader { geo in
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 1.0, green: 0.93, blue: 0.75).opacity(0.14))
-                        .frame(width: 420, height: 420)
-                        .position(x: geo.size.width * 0.84, y: geo.size.height * 0.18)
-
-                    Circle()
-                        .fill(Color(red: 1.0, green: 0.95, blue: 0.82).opacity(0.28))
-                        .frame(width: 210, height: 210)
-                        .position(x: geo.size.width * 0.84, y: geo.size.height * 0.18)
-
-                    // Subtle rolling island silhouettes along bottom edge
-                    Ellipse()
-                        .fill(Color.black.opacity(0.20))
-                        .frame(width: 900, height: 300)
-                        .position(x: geo.size.width * 0.22, y: geo.size.height * 1.02)
-
-                    Ellipse()
-                        .fill(Color.black.opacity(0.24))
-                        .frame(width: 1050, height: 340)
-                        .position(x: geo.size.width * 0.78, y: geo.size.height * 1.04)
-                }
-            }
             .ignoresSafeArea()
 
             HStack(alignment: .center, spacing: 60) {
@@ -72,22 +43,22 @@ struct SetupMenuView: View {
                         Text("DAS GROSSE INSEL-SPEKTAKEL")
                             .font(.system(size: 19, weight: .heavy, design: .rounded))
                             .tracking(3.2)
-                            .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.42))
+                            .foregroundStyle(Color(art: Art.sun))
 
                         Text("WURMAGEDDON")
-                            .font(.system(size: 76, weight: .black, design: .rounded))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.white, Color(red: 1.0, green: 0.90, blue: 0.70)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .shadow(color: .black.opacity(0.45), radius: 16, y: 6)
+                            .font(.system(size: 82, weight: .black, design: .rounded))
+                            .foregroundStyle(Color(art: Art.cream))
+                            // Plum ink outline + offset shadow, like the painted assets
+                            .shadow(color: Color(art: Art.ink), radius: 0, x: 3, y: 3)
+                            .shadow(color: Color(art: Art.ink), radius: 0, x: -3, y: 3)
+                            .shadow(color: Color(art: Art.ink), radius: 0, x: 3, y: -3)
+                            .shadow(color: Color(art: Art.ink), radius: 0, x: -3, y: -3)
+                            .shadow(color: Color(art: Art.ink).opacity(0.7), radius: 0, x: 0, y: 9)
 
                         Text("Rundenbasierte Wurm-Duelle für 2–3 Spieler auf Apple TV.")
                             .font(.system(size: 25, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.88))
+                            .foregroundStyle(Color(art: Art.cream).opacity(0.92))
+                            .shadow(color: Color(art: Art.ink), radius: 4)
                     }
 
                     // Match Options
@@ -119,7 +90,7 @@ struct SetupMenuView: View {
                             }
                             Text(config.mapStyle.subtitle)
                                 .font(.system(size: 18, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.78))
+                                .foregroundStyle(Color(art: Art.cream).opacity(0.82))
                                 .lineLimit(1)
                         }
 
@@ -140,12 +111,12 @@ struct SetupMenuView: View {
                                 .font(.system(size: 32, weight: .black, design: .rounded))
                                 .tracking(1.5)
                         }
-                        .foregroundStyle(.white)
+                            .foregroundStyle(Color(art: Art.cream))
                         .padding(.horizontal, 46)
                         .padding(.vertical, 20)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color(red: 0.95, green: 0.34, blue: 0.26))
+                    .tint(Color(art: Art.coral))
                     .padding(.top, 8)
                 }
                 .frame(maxWidth: 960, alignment: .leading)
@@ -156,7 +127,7 @@ struct SetupMenuView: View {
                         Text("TEAMS AM START")
                             .font(.system(size: 17, weight: .heavy, design: .rounded))
                             .tracking(2.4)
-                            .foregroundStyle(Color(red: 1.0, green: 0.86, blue: 0.48))
+                            .foregroundStyle(Color(art: Art.sun))
 
                         ForEach(0..<config.playerCount, id: \.self) { idx in
                             let team = TeamDescriptor.all[idx]
@@ -165,23 +136,23 @@ struct SetupMenuView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text("Spieler \(idx + 1) · \(team.name)")
                                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(Color(art: Art.cream))
                                     Text(team.wormNames.prefix(config.wormsPerTeam).joined(separator: " · "))
                                         .font(.system(size: 16.5, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.76))
+                                        .foregroundStyle(Color(art: Art.cream).opacity(0.76))
                                 }
                             }
                             .padding(.vertical, 6)
                         }
                     }
 
-                    Divider().background(.white.opacity(0.22))
+                    Divider().background(Color(art: Art.cream).opacity(0.22))
 
                     VStack(alignment: .leading, spacing: 11) {
                         Text("SIRI REMOTE & CONTROLLER")
                             .font(.system(size: 17, weight: .heavy, design: .rounded))
                             .tracking(2.4)
-                            .foregroundStyle(Color(red: 1.0, green: 0.86, blue: 0.48))
+                            .foregroundStyle(Color(art: Art.sun))
 
                         controlLine(icon: "arrow.left.and.right", text: "Links / Rechts drücken: Wurm laufen")
                         controlLine(icon: "arrow.up.and.down", text: "Hoch / Runter drücken: Zielen")
@@ -195,11 +166,12 @@ struct SetupMenuView: View {
                 .frame(width: 600, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .fill(Color(red: 0.06, green: 0.08, blue: 0.15).opacity(0.62))
+                        .fill(Color(art: Art.inkDeep).opacity(0.86))
                         .overlay(
                             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                                .strokeBorder(.white.opacity(0.22), lineWidth: 2)
+                                .strokeBorder(Color(art: Art.cream).opacity(0.22), lineWidth: 2)
                         )
+                        .shadow(color: Color(art: Art.ink).opacity(0.6), radius: 0, y: 8)
                 )
             }
             .padding(.horizontal, 86)
@@ -211,26 +183,26 @@ struct SetupMenuView: View {
         ZStack {
             Circle()
                 .fill(Color(team.color))
-                .frame(width: 42, height: 42)
-                .shadow(color: Color(team.color).opacity(0.45), radius: 8)
+                .frame(width: 46, height: 46)
+                .overlay(Circle().strokeBorder(Color(art: Art.ink), lineWidth: 3))
             switch team.accessory {
             case .ladybugDots:
                 HStack(spacing: 4) {
-                    Circle().fill(.black.opacity(0.85)).frame(width: 6, height: 6)
+                    Circle().fill(Color(art: Art.ink)).frame(width: 6, height: 6)
                     VStack(spacing: 5) {
-                        Circle().fill(.black.opacity(0.85)).frame(width: 6, height: 6)
-                        Circle().fill(.black.opacity(0.85)).frame(width: 6, height: 6)
+                        Circle().fill(Color(art: Art.ink)).frame(width: 6, height: 6)
+                        Circle().fill(Color(art: Art.ink)).frame(width: 6, height: 6)
                     }
-                    Circle().fill(.black.opacity(0.85)).frame(width: 6, height: 6)
+                    Circle().fill(Color(art: Art.ink)).frame(width: 6, height: 6)
                 }
             case .wizardStar:
                 Image(systemName: "star.fill")
                     .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.30))
+                    .foregroundStyle(Color(art: Art.sun))
             case .kittyEars:
                 Image(systemName: "pawprint.fill")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(art: Art.cream))
             }
         }
     }
@@ -248,7 +220,7 @@ struct SetupMenuView: View {
         Text(title)
             .font(.system(size: 16, weight: .heavy, design: .rounded))
             .tracking(2.2)
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(Color(art: Art.cream).opacity(0.80))
     }
 
     private func selectPill(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -259,11 +231,11 @@ struct SetupMenuView: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.34))
+                .foregroundStyle(Color(art: Art.sun))
                 .frame(width: 26)
             Text(text)
                 .font(.system(size: 19.5, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.92))
+                .foregroundStyle(Color(art: Art.cream).opacity(0.92))
         }
     }
 }
@@ -279,7 +251,7 @@ private struct SelectableTVPill: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 21, weight: (selected || isFocused) ? .heavy : .semibold, design: .rounded))
-                .foregroundStyle(isFocused ? Color(red: 0.08, green: 0.10, blue: 0.18) : .white)
+                .foregroundStyle(isFocused ? Color(art: Art.ink) : Color(art: Art.cream))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, fillsWidth ? 12 : 22)
@@ -288,6 +260,6 @@ private struct SelectableTVPill: View {
         }
         .focused($isFocused)
         .buttonStyle(.borderedProminent)
-        .tint(selected ? Color(red: 0.16, green: 0.56, blue: 0.98) : Color(red: 0.18, green: 0.20, blue: 0.32).opacity(0.90))
+        .tint(selected ? Color(art: Art.lagoon) : Color(art: Art.inkSoft).opacity(0.92))
     }
 }

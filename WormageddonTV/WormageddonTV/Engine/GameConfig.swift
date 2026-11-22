@@ -102,33 +102,33 @@ enum MapTheme: String, CaseIterable, Identifiable {
 
     var grassColor: (r: UInt8, g: UInt8, b: UInt8) {
         switch self {
-        case .alpineSunset: return (74, 188, 92)
-        case .emeraldIsles: return (58, 204, 96)
-        case .volcanicDusk: return (62, 168, 138)
+        case .alpineSunset: return (80, 178, 92)
+        case .emeraldIsles: return (72, 190, 98)
+        case .volcanicDusk: return (58, 158, 132)
         }
     }
 
     var grassHighlight: (r: UInt8, g: UInt8, b: UInt8) {
         switch self {
-        case .alpineSunset: return (142, 232, 114)
-        case .emeraldIsles: return (136, 242, 126)
-        case .volcanicDusk: return (122, 224, 188)
+        case .alpineSunset: return (184, 226, 92)
+        case .emeraldIsles: return (178, 232, 98)
+        case .volcanicDusk: return (132, 222, 176)
         }
     }
 
     var soilColor: (r: UInt8, g: UInt8, b: UInt8) {
         switch self {
-        case .alpineSunset: return (148, 96, 66)
-        case .emeraldIsles: return (166, 114, 72)
-        case .volcanicDusk: return (92, 68, 98)
+        case .alpineSunset: return (184, 112, 72)
+        case .emeraldIsles: return (190, 124, 76)
+        case .volcanicDusk: return (118, 80, 116)
         }
     }
 
     var rockColor: (r: UInt8, g: UInt8, b: UInt8) {
         switch self {
-        case .alpineSunset: return (92, 68, 78)
-        case .emeraldIsles: return (112, 92, 82)
-        case .volcanicDusk: return (58, 46, 76)
+        case .alpineSunset: return (126, 104, 132)
+        case .emeraldIsles: return (138, 120, 140)
+        case .volcanicDusk: return (78, 64, 104)
         }
     }
 
