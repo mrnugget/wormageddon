@@ -176,12 +176,12 @@ struct SetupMenuView: View {
                             .tracking(2.4)
                             .foregroundStyle(Color(red: 1.0, green: 0.86, blue: 0.48))
 
-                        controlLine(icon: "arrow.left.and.right", text: "Wurm laufen lassen (Links / Rechts)")
-                        controlLine(icon: "arrow.up.and.down", text: "Zielen (Hoch / Runter oder rechter Stick)")
-                        controlLine(icon: "flame.fill", text: "Auswahl oder R2/X halten zum Schießen")
-                        controlLine(icon: "arrow.up.forward", text: "2× Hoch oder A für einen Sprung")
-                        controlLine(icon: "tray.full.fill", text: "Play/Pause oder Y / L1 / R1 für Waffen")
-                        controlLine(icon: "wind", text: "Wind beachten – Raketen wehen mit!")
+                        controlLine(icon: "arrow.left.and.right", text: "Links / Rechts drücken: Wurm laufen")
+                        controlLine(icon: "arrow.up.and.down", text: "Hoch / Runter drücken: Zielen")
+                        controlLine(icon: "flame.fill", text: "Auswahl halten & loslassen: Schießen")
+                        controlLine(icon: "arrow.up.forward", text: "2× Hoch drücken (oder A): Sprung")
+                        controlLine(icon: "tray.full.fill", text: "Play/Pause (oder Y): 10 Waffen wählen")
+                        controlLine(icon: "wind", text: "Schrotflinte hat 2 Schüsse · Wind beachten!")
                     }
                 }
                 .padding(36)

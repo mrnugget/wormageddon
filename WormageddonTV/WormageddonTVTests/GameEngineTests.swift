@@ -130,4 +130,55 @@ final class GameEngineTests: XCTestCase {
         XCTAssertFalse(updatedTarget.isAlive)
         XCTAssertEqual(engine.aliveTeamIndices(), [0])
     }
+
+    func testNewWeaponsDynamiteRetreatSheepAndShotgunTwoShots() {
+        var config = MatchConfig()
+        config.playerCount = 2
+        config.wormsPerTeam = 2
+        config.seed = 2026
+        let engine = GameEngine(config: config)
+
+        // Dismiss turn banner
+        var dismiss = InputSnapshot()
+        dismiss.moveX = 0.5
+        engine.update(dt: 1.0 / 60.0, input: &dismiss)
+
+        // Equip Shotgun via weapon cycling (bazooka -> grenade -> cluster -> shotgun)
+        for _ in 0..<3 {
+            var next = InputSnapshot(); next.nextWeaponPressed = true
+            engine.update(dt: 1.0 / 60.0, input: &next)
+        }
+        XCTAssertEqual(engine.selectedWeapon, .shotgun)
+
+        // Fire Shotgun shot #1 -> should stay in playerControl with 1 shot remaining!
+        var shot1 = InputSnapshot(); shot1.firePressed = true
+        engine.update(dt: 1.0 / 60.0, input: &shot1)
+        XCTAssertEqual(engine.shotgunShotsRemaining, 1)
+        XCTAssertEqual(engine.phase, .playerControl)
+
+        // Fire Shotgun shot #2 -> should enter settling
+        var shot2 = InputSnapshot(); shot2.firePressed = true
+        engine.update(dt: 1.0 / 60.0, input: &shot2)
+        XCTAssertEqual(engine.shotgunShotsRemaining, 0)
+        if case .settling = engine.phase {} else {
+            XCTFail("Expected settling after 2nd shotgun shot, got \(engine.phase)")
+        }
+
+        // Verify Dynamite triggers retreat phase on a fresh match
+        let dynEngine = GameEngine(config: config)
+        var d0 = InputSnapshot(); d0.moveX = 0.5
+        dynEngine.update(dt: 1.0 / 60.0, input: &d0)
+        var prev = InputSnapshot(); prev.prevWeaponPressed = true
+        dynEngine.update(dt: 1.0 / 60.0, input: &prev)
+        XCTAssertEqual(dynEngine.selectedWeapon, .dynamite)
+        var drop = InputSnapshot(); drop.firePressed = true
+        dynEngine.update(dt: 1.0 / 60.0, input: &drop)
+        if case .retreat = dynEngine.phase {} else {
+            XCTFail("Expected retreat phase after placing Dynamite, got \(dynEngine.phase)")
+        }
+
+        // Verify world is 50% larger (2880 x 1500)
+        XCTAssertEqual(engine.terrain.worldWidth, 2880)
+        XCTAssertEqual(engine.terrain.worldHeight, 1500)
+    }
 }

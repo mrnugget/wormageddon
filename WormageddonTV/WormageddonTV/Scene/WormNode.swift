@@ -472,6 +472,12 @@ final class WormNode: SKNode {
             cross.strokeColor = SKColor(red: 1.0, green: 0.94, blue: 0.48, alpha: 1)
             cross.lineWidth = 2.0
             weaponGraphic.addChild(cross)
+
+        case .bananaBomb, .sheep, .firePunch, .dynamite:
+            let sprite = SKSpriteNode(imageNamed: weapon.iconName)
+            sprite.size = CGSize(width: 24, height: 24)
+            sprite.position = CGPoint(x: 13, y: 2)
+            weaponGraphic.addChild(sprite)
         }
     }
 }

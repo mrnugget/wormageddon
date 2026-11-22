@@ -44,10 +44,10 @@ struct PauseOverlayView: View {
                         .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.34))
 
                     Group {
-                        Text("Apple TV Siri Remote")
+                        Text("Apple TV Siri Remote (nur fest drücken)")
                             .font(.system(size: 24, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
-                        Text("• Links / Rechts: Wurm laufen lassen\n• Hoch / Runter: Zielen\n• Auswahl halten & loslassen: Schießen\n• 2× Hoch / 2× Runter: Sprung / Rückwärtssalto\n• Play/Pause: Waffen-Leiste öffnen\n• Menü / Zurück: Pause")
+                        Text("• Links / Rechts drücken: Wurm laufen lassen\n• Hoch / Runter drücken: Zielen\n• Auswahl halten & loslassen: Schießen (Schaf: nochmal drücken = Knall!)\n• 2× Hoch / 2× Runter drücken: Sprung / Rückwärtssalto\n• Play/Pause: Waffenkammer (10 Waffen) öffnen\n• Menü / Zurück: Pause")
                             .font(.system(size: 20, weight: .medium, design: .rounded))
                             .foregroundStyle(.white.opacity(0.88))
                             .lineSpacing(6)

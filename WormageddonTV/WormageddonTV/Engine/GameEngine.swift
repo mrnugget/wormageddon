@@ -56,7 +56,10 @@ struct ProjectileState: Identifiable {
     var position: CGPoint
     var velocity: CGVector
     var fuseRemaining: TimeInterval? // nil = impact detonation
-    var isClusterBomblet: Bool = false
+    var isSubmunition: Bool = false
+    var sheepDirection: CGFloat = 0 // non-zero for running Super-Schaf
+    var sheepHopTimer: TimeInterval = 0
+    var isStationary: Bool = false // true for placed Dynamite
     var age: TimeInterval = 0
     var rotation: CGFloat = 0
     var hasPlayedHolyChoir: Bool = false
@@ -88,6 +91,7 @@ enum TurnPhase: Equatable {
     case playerControl
     case charging(power: CGFloat)
     case airstrikeAiming(targetX: CGFloat)
+    case retreat(remaining: TimeInterval)
     case projectileInFlight
     case settling(remaining: TimeInterval)
     case matchOver(winnerTeamIndex: Int?)
@@ -96,6 +100,10 @@ enum TurnPhase: Equatable {
 enum GameEvent {
     case explosion(center: CGPoint, radius: CGFloat, isHoly: Bool)
     case shotgunTracer(from: CGPoint, to: CGPoint)
+    case shotgunSecondShotReady(position: CGPoint)
+    case firePunchBurst(position: CGPoint, facing: CGFloat)
+    case sheepBaa(position: CGPoint)
+    case dynamitePlaced(position: CGPoint)
     case wormDamaged(wormID: Int, amount: Int, position: CGPoint)
     case wormDrowned(wormID: Int, position: CGPoint)
     case wormJumped(position: CGPoint, isBackflip: Bool)
@@ -177,14 +185,11 @@ final class GameEngine {
             return TeamState(descriptor: desc, ammo: ammo)
         }
 
-        // Gather valid spawn X coordinates evenly distributed across solid ground above water
         let totalWorms = count * config.wormsPerTeam
         let spawnPoints = findSpawnPoints(count: totalWorms)
 
-        // Interleave teams across spawn slots so teams start mixed across the map
         var wormID = 1
         var slotOrder = Array(0..<spawnPoints.count)
-        // Deterministic Fisher-Yates shuffle
         for i in stride(from: slotOrder.count - 1, through: 1, by: -1) {
             let j = Int(rng.nextUInt64() % UInt64(i + 1))
             slotOrder.swapAt(i, j)
@@ -213,30 +218,27 @@ final class GameEngine {
 
     private func findSpawnPoints(count: Int) -> [CGPoint] {
         var candidates: [CGPoint] = []
-        let margin: CGFloat = 150
-        let sampleCount = 72
+        let margin: CGFloat = 180
+        let sampleCount = 108
         let usableWidth = WorldConstants.width - margin * 2
 
         for i in 0..<sampleCount {
             let x = margin + usableWidth * (CGFloat(i) / CGFloat(sampleCount - 1))
-            if let sy = terrain.surfaceY(atWorldX: x), sy > WorldConstants.initialWaterY + 34, sy < WorldConstants.height - 160 {
-                // Verify terrain isn't a tiny needle spike by checking neighbors
-                if let syL = terrain.surfaceY(atWorldX: x - 14),
-                   let syR = terrain.surfaceY(atWorldX: x + 14),
-                   abs(syL - sy) < 36, abs(syR - sy) < 36 {
+            if let sy = terrain.surfaceY(atWorldX: x), sy > WorldConstants.initialWaterY + 40, sy < WorldConstants.height - 200 {
+                if let syL = terrain.surfaceY(atWorldX: x - 16),
+                   let syR = terrain.surfaceY(atWorldX: x + 16),
+                   abs(syL - sy) < 38, abs(syR - sy) < 38 {
                     candidates.append(CGPoint(x: x, y: sy + WorldConstants.wormRadius + 2))
                 }
             }
         }
 
         if candidates.isEmpty {
-            // Fallback safe positions
             return (0..<count).map { i in
-                CGPoint(x: 320 + CGFloat(i) * 160, y: 600)
+                CGPoint(x: 340 + CGFloat(i) * 200, y: 760)
             }
         }
 
-        // Pick `count` well-spaced points from candidates
         var picked: [CGPoint] = []
         let strideStep = max(1, candidates.count / max(1, count))
         for i in 0..<count {
@@ -261,14 +263,12 @@ final class GameEngine {
             return
         }
 
-        // Always update hurt timers
         for i in worms.indices {
             if worms[i].hurtTimer > 0 {
                 worms[i].hurtTimer = max(0, worms[i].hurtTimer - dt)
             }
         }
 
-        // Handle turn phases
         switch phase {
         case .turnBanner(let remaining):
             if remaining - dt <= 0 || input.hasAnyAction {
@@ -286,8 +286,20 @@ final class GameEngine {
         case .airstrikeAiming(let targetX):
             handleAirstrikeAiming(dt: dt, targetX: targetX, input: &input)
 
+        case .retreat(let remaining):
+            handleRetreatMovement(dt: dt, input: &input)
+            if remaining - dt <= 0 {
+                phase = projectiles.isEmpty ? .settling(remaining: 0.9) : .projectileInFlight
+            } else {
+                phase = .retreat(remaining: remaining - dt)
+            }
+
         case .projectileInFlight:
-            break
+            // Press Select again to detonate an active Super-Schaf early!
+            if input.firePressed, let sheepIdx = projectiles.firstIndex(where: { $0.weapon == .sheep && $0.age > 0.35 }) {
+                let sheep = projectiles.remove(at: sheepIdx)
+                detonate(projectile: sheep)
+            }
 
         case .settling(let remaining):
             if !anyBodiesMoving() {
@@ -302,12 +314,10 @@ final class GameEngine {
             break
         }
 
-        // Simulate physics for all worms, projectiles, and crates
         updateWormsPhysics(dt: dt)
         updateProjectilesPhysics(dt: dt)
         updateCratesPhysics(dt: dt)
 
-        // Transition out of projectileInFlight once all projectiles have detonated/exited
         if case .projectileInFlight = phase, projectiles.isEmpty {
             if shotgunShotsRemaining > 0, let active = activeWorm, active.isAlive {
                 phase = .playerControl
@@ -316,7 +326,6 @@ final class GameEngine {
             }
         }
 
-        // Check if active worm died mid-control
         if case .playerControl = phase {
             if let active = activeWorm, !active.isAlive {
                 isWeaponBarOpen = false
@@ -327,10 +336,9 @@ final class GameEngine {
         input.consumePulses()
     }
 
-    // MARK: - Player Control & Weapons
+    // MARK: - Player Control & 2×5 Weapon Drawer
 
     private func handlePlayerControl(dt: TimeInterval, input: inout InputSnapshot) {
-        // Turn timer counts down during player control
         turnTimeRemaining = max(0, turnTimeRemaining - dt)
         if turnTimeRemaining <= 0 {
             isWeaponBarOpen = false
@@ -339,8 +347,8 @@ final class GameEngine {
             return
         }
 
-        // Weapon bar toggle
-        if input.toggleWeaponBarPressed {
+        // Cannot swap weapons mid-shotgun burst (keeps 2nd shot crystal clear!)
+        if input.toggleWeaponBarPressed && shotgunShotsRemaining == 0 {
             isWeaponBarOpen.toggle()
             if isWeaponBarOpen {
                 weaponBarSelectionIndex = selectedWeapon.rawValue
@@ -348,20 +356,30 @@ final class GameEngine {
             return
         }
 
-        // Quick weapon cycling (L1/R1 on controller)
-        if input.prevWeaponPressed {
-            cycleWeapon(delta: -1)
-        } else if input.nextWeaponPressed {
-            cycleWeapon(delta: 1)
+        if shotgunShotsRemaining == 0 {
+            if input.prevWeaponPressed {
+                cycleWeapon(delta: -1)
+            } else if input.nextWeaponPressed {
+                cycleWeapon(delta: 1)
+            }
         }
 
-        // If weapon bar is open, Left/Right navigates weapons and Select confirms
+        // 2×5 Weapon Drawer navigation (Left/Right columns, Up/Down rows)
         if isWeaponBarOpen {
-            if abs(input.moveX) > 0.35 && weaponBarNavCooldown <= 0 {
-                let step = input.moveX > 0 ? 1 : -1
-                let count = WeaponKind.allCases.count
-                weaponBarSelectionIndex = (weaponBarSelectionIndex + step + count) % count
-                weaponBarNavCooldown = 0.22
+            let cols = 5
+            let total = WeaponKind.allCases.count
+            if weaponBarNavCooldown <= 0 {
+                if abs(input.moveX) > 0.35 {
+                    let step = input.moveX > 0 ? 1 : -1
+                    let row = weaponBarSelectionIndex / cols
+                    let col = (weaponBarSelectionIndex % cols + step + cols) % cols
+                    weaponBarSelectionIndex = min(total - 1, row * cols + col)
+                    weaponBarNavCooldown = 0.20
+                } else if abs(input.aimY) > 0.35 {
+                    let nextIdx = (weaponBarSelectionIndex + cols) % total
+                    weaponBarSelectionIndex = nextIdx
+                    weaponBarNavCooldown = 0.22
+                }
             }
             if input.firePressed {
                 let chosen = WeaponKind.allCases[weaponBarSelectionIndex]
@@ -381,17 +399,9 @@ final class GameEngine {
             return
         }
 
-        // Movement (walking on ground)
-        if abs(input.moveX) > 0.2 && worms[wormIdx].isGrounded {
-            let dir: CGFloat = input.moveX > 0 ? 1 : -1
-            worms[wormIdx].facing = dir
-            walkWorm(at: wormIdx, direction: dir, speedScale: min(1.0, abs(input.moveX)), dt: dt)
-        } else if abs(input.moveX) > 0.2 {
-            // Slight air steering / turning
-            worms[wormIdx].facing = input.moveX > 0 ? 1 : -1
-        }
+        moveAndJumpWorm(at: wormIdx, dt: dt, input: input)
 
-        // Aiming: direct right-stick aim OR up/down angle adjustment
+        // Aiming
         if hypot(input.directAimX, input.directAimY) > 0.35 {
             let facing: CGFloat = input.directAimX >= 0 ? 1 : -1
             worms[wormIdx].facing = facing
@@ -403,33 +413,56 @@ final class GameEngine {
             worms[wormIdx].aimAngle = max(-1.35, min(1.45, worms[wormIdx].aimAngle + input.aimY * aimSpeed * CGFloat(dt)))
         }
 
-        // Jumping
-        if input.jumpPressed && worms[wormIdx].isGrounded {
-            let dir = worms[wormIdx].facing
-            worms[wormIdx].velocity = CGVector(dx: dir * 185, dy: 345)
-            worms[wormIdx].isGrounded = false
-            worms[wormIdx].fallStartY = worms[wormIdx].position.y
-            pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: false))
-        } else if input.backflipPressed && worms[wormIdx].isGrounded {
-            let dir = worms[wormIdx].facing
-            worms[wormIdx].velocity = CGVector(dx: -dir * 105, dy: 430)
-            worms[wormIdx].isGrounded = false
-            worms[wormIdx].fallStartY = worms[wormIdx].position.y
-            pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: true))
-        }
-
         // Firing
         if input.firePressed {
             if !currentTeam.canUse(selectedWeapon) {
                 selectedWeapon = .bazooka
             }
-            if selectedWeapon == .airstrike {
+            switch selectedWeapon {
+            case .airstrike:
                 phase = .airstrikeAiming(targetX: worms[wormIdx].position.x)
-            } else if selectedWeapon == .shotgun {
+            case .shotgun:
                 fireShotgun(from: wormIdx)
-            } else if selectedWeapon.usesChargePower {
+            case .sheep:
+                launchSheep(from: wormIdx)
+            case .firePunch:
+                executeFirePunch(from: wormIdx)
+            case .dynamite:
+                placeDynamite(from: wormIdx)
+            case .bazooka, .grenade, .clusterBomb, .holyGrenade, .bananaBomb:
                 phase = .charging(power: 0.14)
             }
+        }
+    }
+
+    private func handleRetreatMovement(dt: TimeInterval, input: inout InputSnapshot) {
+        guard let wormIdx = worms.firstIndex(where: { $0.id == activeWormID }), worms[wormIdx].isAlive else {
+            return
+        }
+        moveAndJumpWorm(at: wormIdx, dt: dt, input: input)
+    }
+
+    private func moveAndJumpWorm(at wormIdx: Int, dt: TimeInterval, input: InputSnapshot) {
+        if abs(input.moveX) > 0.2 && worms[wormIdx].isGrounded {
+            let dir: CGFloat = input.moveX > 0 ? 1 : -1
+            worms[wormIdx].facing = dir
+            walkWorm(at: wormIdx, direction: dir, speedScale: min(1.0, abs(input.moveX)), dt: dt)
+        } else if abs(input.moveX) > 0.2 {
+            worms[wormIdx].facing = input.moveX > 0 ? 1 : -1
+        }
+
+        if input.jumpPressed && worms[wormIdx].isGrounded {
+            let dir = worms[wormIdx].facing
+            worms[wormIdx].velocity = CGVector(dx: dir * 205, dy: 365)
+            worms[wormIdx].isGrounded = false
+            worms[wormIdx].fallStartY = worms[wormIdx].position.y
+            pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: false))
+        } else if input.backflipPressed && worms[wormIdx].isGrounded {
+            let dir = worms[wormIdx].facing
+            worms[wormIdx].velocity = CGVector(dx: -dir * 115, dy: 455)
+            worms[wormIdx].isGrounded = false
+            worms[wormIdx].fallStartY = worms[wormIdx].position.y
+            pendingEvents.append(.wormJumped(position: worms[wormIdx].position, isBackflip: true))
         }
     }
 
@@ -452,15 +485,14 @@ final class GameEngine {
         }
 
         if input.toggleWeaponBarPressed {
-            // Cancel airstrike back to normal control
             phase = .playerControl
             isWeaponBarOpen = true
             weaponBarSelectionIndex = selectedWeapon.rawValue
             return
         }
 
-        let moveSpeed: CGFloat = 680
-        let clampedX = max(140, min(WorldConstants.width - 140, targetX + input.moveX * moveSpeed * CGFloat(dt)))
+        let moveSpeed: CGFloat = 920
+        let clampedX = max(180, min(WorldConstants.width - 180, targetX + input.moveX * moveSpeed * CGFloat(dt)))
         if input.aimY > 0.4 {
             airstrikeFromLeft = true
         } else if input.aimY < -0.4 {
@@ -506,18 +538,18 @@ final class GameEngine {
 
         let dir = worm.aimDirection
         let muzzle = CGPoint(
-            x: worm.position.x + dir.dx * (WorldConstants.wormRadius + 10),
-            y: worm.position.y + 4 + dir.dy * (WorldConstants.wormRadius + 10)
+            x: worm.position.x + dir.dx * (WorldConstants.wormRadius + 11),
+            y: worm.position.y + 4 + dir.dy * (WorldConstants.wormRadius + 11)
         )
 
-        let minSpeed: CGFloat = 290
-        let maxSpeed: CGFloat = (weapon == .bazooka) ? 1020 : 880
+        let minSpeed: CGFloat = 320
+        let maxSpeed: CGFloat = (weapon == .bazooka) ? 1160 : 980
         let speed = minSpeed + (maxSpeed - minSpeed) * power
 
         let fuse: TimeInterval?
         switch weapon {
         case .grenade, .clusterBomb: fuse = 3.0
-        case .holyGrenade: fuse = 3.5
+        case .holyGrenade, .bananaBomb: fuse = 3.5
         default: fuse = nil
         }
 
@@ -549,11 +581,10 @@ final class GameEngine {
             x: worm.position.x + dir.dx * (WorldConstants.wormRadius + 6),
             y: worm.position.y + 4 + dir.dy * (WorldConstants.wormRadius + 6)
         )
-        let maxRange: CGFloat = 860
+        let maxRange: CGFloat = 1040
         let end = CGPoint(x: start.x + dir.dx * maxRange, y: start.y + dir.dy * maxRange)
 
-        // Step along ray to find first worm or terrain hit
-        let steps = 180
+        let steps = 210
         var hitPoint = end
         var hitSomething = false
 
@@ -591,6 +622,7 @@ final class GameEngine {
         }
 
         if shotgunShotsRemaining > 0 {
+            pendingEvents.append(.shotgunSecondShotReady(position: worm.position))
             phase = .playerControl
         } else {
             phase = .settling(remaining: 0.95)
@@ -603,18 +635,18 @@ final class GameEngine {
 
         let dirX: CGFloat = airstrikeFromLeft ? 1 : -1
         for i in 0..<5 {
-            let offset = CGFloat(i - 2) * 52
-            let spawnX = targetX + offset - dirX * 260
-            let spawnY = WorldConstants.height - 20 + CGFloat(i) * 28
+            let offset = CGFloat(i - 2) * 64
+            let spawnX = targetX + offset - dirX * 320
+            let spawnY = WorldConstants.height - 20 + CGFloat(i) * 32
             let proj = ProjectileState(
                 id: nextProjectileID,
                 weapon: .airstrike,
                 ownerTeamIndex: worm.teamIndex,
                 ownerWormID: worm.id,
                 position: CGPoint(x: spawnX, y: spawnY),
-                velocity: CGVector(dx: dirX * 195, dy: -210),
+                velocity: CGVector(dx: dirX * 220, dy: -230),
                 fuseRemaining: nil,
-                rotation: atan2(-210, dirX * 195)
+                rotation: atan2(-230, dirX * 220)
             )
             nextProjectileID += 1
             projectiles.append(proj)
@@ -623,18 +655,86 @@ final class GameEngine {
         phase = .projectileInFlight
     }
 
+    private func launchSheep(from wormIdx: Int) {
+        let worm = worms[wormIdx]
+        consumeAmmo(.sheep)
+        let dir = worm.facing
+        let spawn = CGPoint(x: worm.position.x + dir * 24, y: worm.position.y + 8)
+        let proj = ProjectileState(
+            id: nextProjectileID,
+            weapon: .sheep,
+            ownerTeamIndex: worm.teamIndex,
+            ownerWormID: worm.id,
+            position: spawn,
+            velocity: CGVector(dx: dir * 210, dy: 210),
+            fuseRemaining: 5.5,
+            sheepDirection: dir,
+            sheepHopTimer: 0.45
+        )
+        nextProjectileID += 1
+        projectiles.append(proj)
+        pendingEvents.append(.sheepBaa(position: spawn))
+        phase = .projectileInFlight
+    }
+
+    private func executeFirePunch(from wormIdx: Int) {
+        let worm = worms[wormIdx]
+        let dir = worm.facing
+        let strikePoint = CGPoint(x: worm.position.x + dir * 28, y: worm.position.y + 18)
+
+        // Active worm rises slightly with the uppercut
+        worms[wormIdx].velocity = CGVector(dx: dir * 85, dy: 270)
+        worms[wormIdx].isGrounded = false
+        worms[wormIdx].fallStartY = worms[wormIdx].position.y
+
+        terrain.carveCrater(worldCenter: strikePoint, worldRadius: WeaponKind.firePunch.explosionRadius)
+        pendingEvents.append(.firePunchBurst(position: strikePoint, facing: dir))
+
+        // Blast any nearby other worms sky-high!
+        for i in worms.indices where i != wormIdx && worms[i].isAlive {
+            let dist = hypot(worms[i].position.x - strikePoint.x, worms[i].position.y - strikePoint.y)
+            if dist < 82 {
+                applyDamage(to: i, amount: WeaponKind.firePunch.maxDamage, attackerTeam: worm.teamIndex)
+                worms[i].velocity = CGVector(dx: dir * 360, dy: 560)
+                worms[i].isGrounded = false
+                worms[i].fallStartY = worms[i].position.y
+            }
+        }
+
+        phase = .settling(remaining: 1.0)
+    }
+
+    private func placeDynamite(from wormIdx: Int) {
+        let worm = worms[wormIdx]
+        consumeAmmo(.dynamite)
+        let dropPos = CGPoint(x: worm.position.x + worm.facing * 18, y: worm.position.y - 2)
+        let proj = ProjectileState(
+            id: nextProjectileID,
+            weapon: .dynamite,
+            ownerTeamIndex: worm.teamIndex,
+            ownerWormID: worm.id,
+            position: dropPos,
+            velocity: .zero,
+            fuseRemaining: 4.0,
+            isStationary: true
+        )
+        nextProjectileID += 1
+        projectiles.append(proj)
+        pendingEvents.append(.dynamitePlaced(position: dropPos))
+        // Give player 3.5 seconds to run & jump away from the ticking dynamite!
+        phase = .retreat(remaining: WorldConstants.retreatDuration)
+    }
+
     // MARK: - Worm Movement & Physics
 
     private func walkWorm(at idx: Int, direction: CGFloat, speedScale: CGFloat, dt: TimeInterval) {
         let stepX = direction * WorldConstants.wormWalkSpeed * speedScale * CGFloat(dt)
-        let candidateX = max(24, min(WorldConstants.width - 24, worms[idx].position.x + stepX))
+        let candidateX = max(28, min(WorldConstants.width - 28, worms[idx].position.x + stepX))
         let currentY = worms[idx].position.y
 
-        // Try climbing up to wormMaxStepUp or stepping down smoothly
         var foundY: CGFloat? = nil
         let r = WorldConstants.wormRadius
 
-        // Check foot support around candidateX
         for dy in stride(from: Int(WorldConstants.wormMaxStepUp), through: -Int(WorldConstants.wormMaxStepUp), by: -2) {
             let testY = currentY + CGFloat(dy)
             let feet = CGPoint(x: candidateX, y: testY - r)
@@ -650,7 +750,6 @@ final class GameEngine {
             worms[idx].walkPhase += CGFloat(dt) * 12.0
             worms[idx].isGrounded = true
         } else {
-            // Might be walking off a ledge! Check if body at candidateX is clear of terrain
             let nextBody = CGPoint(x: candidateX, y: currentY)
             if !terrain.isSolidCircle(center: nextBody, radius: r * 0.7) {
                 worms[idx].position.x = candidateX
@@ -667,7 +766,6 @@ final class GameEngine {
         for i in worms.indices {
             guard worms[i].isAlive else { continue }
 
-            // Check water drowning
             if worms[i].position.y <= waterY + 4 {
                 worms[i].isDrowned = true
                 worms[i].health = 0
@@ -676,7 +774,6 @@ final class GameEngine {
                 continue
             }
 
-            // If grounded, verify ground still exists underneath (e.g., crater carved below!)
             if worms[i].isGrounded {
                 let underFoot = CGPoint(x: worms[i].position.x, y: worms[i].position.y - r - 3)
                 if !terrain.isSolid(worldPoint: underFoot) {
@@ -687,7 +784,6 @@ final class GameEngine {
                 }
             }
 
-            // Airborne physics
             worms[i].velocity.dy += WorldConstants.gravity * CGFloat(dt)
             let speed = hypot(worms[i].velocity.dx, worms[i].velocity.dy)
             if speed > 140 {
@@ -696,7 +792,6 @@ final class GameEngine {
                 worms[i].tumbleSpin = 0
             }
 
-            // Sub-step movement to prevent tunneling through thin terrain
             let subSteps = max(1, Int(ceil(speed * CGFloat(dt) / 5.0)))
             let subDt = CGFloat(dt) / CGFloat(subSteps)
 
@@ -706,7 +801,6 @@ final class GameEngine {
                     y: worms[i].position.y + worms[i].velocity.dy * subDt
                 )
 
-                // Out of horizontal bounds -> drown
                 if nextPos.x < -30 || nextPos.x > WorldConstants.width + 30 || nextPos.y <= waterY + 4 {
                     worms[i].position = nextPos
                     worms[i].isDrowned = true
@@ -721,20 +815,17 @@ final class GameEngine {
                     let vn = worms[i].velocity.dx * normal.dx + worms[i].velocity.dy * normal.dy
 
                     if vn < -220 {
-                        // Bounce off steep impact
                         let restitution: CGFloat = 0.32
                         worms[i].velocity.dx = (worms[i].velocity.dx - (1 + restitution) * vn * normal.dx) * 0.72
                         worms[i].velocity.dy = (worms[i].velocity.dy - (1 + restitution) * vn * normal.dy) * 0.72
                         worms[i].position.x += normal.dx * 2
                         worms[i].position.y += normal.dy * 2
                     } else if normal.dy > 0.38 {
-                        // Landed on walkable ground!
                         applyFallDamageIfNeeded(wormIdx: i)
                         worms[i].velocity = .zero
                         worms[i].isGrounded = true
                         worms[i].tumbleSpin = 0
                         worms[i].fallStartY = nil
-                        // Push slightly up out of terrain if embedded
                         var lift = 0
                         while lift < 16 && terrain.isSolid(worldPoint: CGPoint(x: worms[i].position.x, y: worms[i].position.y - r + 2)) {
                             worms[i].position.y += 1
@@ -742,7 +833,6 @@ final class GameEngine {
                         }
                         break
                     } else {
-                        // Wall slide
                         worms[i].velocity.dx *= -0.25
                         worms[i].position.x += normal.dx * 2
                         break
@@ -757,8 +847,8 @@ final class GameEngine {
     private func applyFallDamageIfNeeded(wormIdx: Int) {
         guard let startY = worms[wormIdx].fallStartY else { return }
         let drop = startY - worms[wormIdx].position.y
-        if drop > 235 {
-            let dmg = min(35, Int((drop - 220) / 14))
+        if drop > 255 {
+            let dmg = min(35, Int((drop - 240) / 14))
             if dmg > 0 {
                 applyDamage(to: wormIdx, amount: dmg, attackerTeam: nil)
             }
@@ -772,12 +862,6 @@ final class GameEngine {
         while i < projectiles.count {
             var p = projectiles[i]
             p.age += dt
-
-            // Gravity + Wind
-            p.velocity.dy += WorldConstants.gravity * CGFloat(dt)
-            if p.weapon.affectedByWind {
-                p.velocity.dx += wind * WorldConstants.maxWindAccel * CGFloat(dt)
-            }
 
             // Fuse countdown
             if let fuse = p.fuseRemaining {
@@ -796,16 +880,100 @@ final class GameEngine {
                 }
             }
 
+            // Stationary Dynamite falls straight down until it rests on ground
+            if p.isStationary {
+                let foot = CGPoint(x: p.position.x, y: p.position.y - 12)
+                if !terrain.isSolid(worldPoint: foot) {
+                    p.velocity.dy += WorldConstants.gravity * CGFloat(dt)
+                    p.position.y += p.velocity.dy * CGFloat(dt)
+                } else {
+                    p.velocity = .zero
+                }
+                if p.position.y <= waterY {
+                    projectiles.remove(at: i)
+                    pendingEvents.append(.wormDrowned(wormID: -1, position: CGPoint(x: p.position.x, y: waterY)))
+                    continue
+                }
+                projectiles[i] = p
+                i += 1
+                continue
+            }
+
+            // Running Super-Schaf hopping behavior!
+            if p.weapon == .sheep {
+                p.sheepHopTimer -= dt
+                p.velocity.dx = p.sheepDirection * 215
+                p.velocity.dy += WorldConstants.gravity * CGFloat(dt)
+
+                let nextPos = CGPoint(
+                    x: p.position.x + p.velocity.dx * CGFloat(dt),
+                    y: p.position.y + p.velocity.dy * CGFloat(dt)
+                )
+
+                if nextPos.y <= waterY || nextPos.x < -120 || nextPos.x > WorldConstants.width + 120 {
+                    projectiles.remove(at: i)
+                    if nextPos.y <= waterY {
+                        pendingEvents.append(.wormDrowned(wormID: -1, position: CGPoint(x: max(40, min(WorldConstants.width - 40, nextPos.x)), y: waterY)))
+                    }
+                    continue
+                }
+
+                // Detonate on direct enemy worm contact after 0.35s!
+                if p.age > 0.35, worms.contains(where: { $0.isAlive && $0.id != p.ownerWormID && hypot($0.position.x - nextPos.x, $0.position.y - nextPos.y) <= WorldConstants.wormRadius + 14 }) {
+                    p.position = nextPos
+                    projectiles.remove(at: i)
+                    detonate(projectile: p)
+                    continue
+                }
+
+                if terrain.isSolid(worldPoint: CGPoint(x: nextPos.x, y: nextPos.y - 10)) {
+                    let normal = terrain.surfaceNormal(at: nextPos)
+                    if abs(normal.dx) > 0.72 && normal.dy < 0.35 {
+                        // Sheer wall — bounce around and reverse!
+                        p.sheepDirection *= -1
+                        p.velocity.dx = p.sheepDirection * 215
+                        p.velocity.dy = 250
+                        pendingEvents.append(.sheepBaa(position: p.position))
+                    } else {
+                        // Climb gently or hop cheerfully!
+                        p.position.x = nextPos.x
+                        var lift: CGFloat = 0
+                        while lift < 22 && terrain.isSolid(worldPoint: CGPoint(x: p.position.x, y: p.position.y - 10 + lift)) {
+                            lift += 2
+                        }
+                        p.position.y += lift
+                        if p.sheepHopTimer <= 0 {
+                            p.velocity.dy = 310
+                            p.sheepHopTimer = 0.58
+                            pendingEvents.append(.grenadeBounce(position: p.position))
+                        } else {
+                            p.velocity.dy = max(0, p.velocity.dy)
+                        }
+                    }
+                } else {
+                    p.position = nextPos
+                }
+
+                projectiles[i] = p
+                i += 1
+                continue
+            }
+
+            // Standard ballistic projectiles (Bazooka, Granate, Streubombe, Bananenbombe, Luftangriff, Heilige Granate)
+            p.velocity.dy += WorldConstants.gravity * CGFloat(dt)
+            if p.weapon.affectedByWind {
+                p.velocity.dx += wind * WorldConstants.maxWindAccel * CGFloat(dt)
+            }
+
             let speed = hypot(p.velocity.dx, p.velocity.dy)
             if speed > 10 {
-                if p.weapon == .bazooka || p.weapon == .airstrike || p.isClusterBomblet {
+                if p.weapon == .bazooka || p.weapon == .airstrike || (p.weapon == .clusterBomb && p.isSubmunition) {
                     p.rotation = atan2(p.velocity.dy, p.velocity.dx)
                 } else {
-                    p.rotation += (p.velocity.dx >= 0 ? -1 : 1) * CGFloat(dt) * min(12, speed * 0.02)
+                    p.rotation += (p.velocity.dx >= 0 ? -1 : 1) * CGFloat(dt) * min(14, speed * 0.022)
                 }
             }
 
-            // Sub-step to avoid tunneling
             let subSteps = max(1, Int(ceil(speed * CGFloat(dt) / 6.0)))
             let subDt = CGFloat(dt) / CGFloat(subSteps)
             var detonatedOrRemoved = false
@@ -816,8 +984,7 @@ final class GameEngine {
                     y: p.position.y + p.velocity.dy * subDt
                 )
 
-                // Offscreen / Water splash removal
-                if nextPos.y <= waterY || nextPos.x < -160 || nextPos.x > WorldConstants.width + 160 || nextPos.y > WorldConstants.height + 500 {
+                if nextPos.y <= waterY || nextPos.x < -180 || nextPos.x > WorldConstants.width + 180 || nextPos.y > WorldConstants.height + 650 {
                     projectiles.remove(at: i)
                     if nextPos.y <= waterY {
                         pendingEvents.append(.wormDrowned(wormID: -1, position: CGPoint(x: max(40, min(WorldConstants.width - 40, nextPos.x)), y: waterY)))
@@ -826,7 +993,6 @@ final class GameEngine {
                     break
                 }
 
-                // Worm collision check (skip self for first 0.14s)
                 let hitWorm = worms.first { w in
                     guard w.isAlive else { return false }
                     if w.id == p.ownerWormID && p.age < 0.16 { return false }
@@ -837,14 +1003,12 @@ final class GameEngine {
 
                 if hitWorm != nil || hitTerrain {
                     if p.fuseRemaining == nil {
-                        // Impact weapon (Bazooka, Airstrike, Cluster bomblet)
                         p.position = nextPos
                         projectiles.remove(at: i)
                         detonate(projectile: p)
                         detonatedOrRemoved = true
                         break
                     } else {
-                        // Fuse weapon bounces off terrain / worms!
                         let normal: CGVector
                         if let hw = hitWorm {
                             let dx = nextPos.x - hw.position.x
@@ -857,10 +1021,16 @@ final class GameEngine {
 
                         let vn = p.velocity.dx * normal.dx + p.velocity.dy * normal.dy
                         if vn < 0 {
-                            let bounce: CGFloat = (p.weapon == .holyGrenade) ? 0.42 : 0.56
-                            p.velocity.dx = (p.velocity.dx - (1 + bounce) * vn * normal.dx) * 0.86
-                            p.velocity.dy = (p.velocity.dy - (1 + bounce) * vn * normal.dy) * 0.86
-                            if abs(vn) > 70 {
+                            let bounce: CGFloat
+                            switch p.weapon {
+                            case .bananaBomb: bounce = 0.80 // Super bouncy banana chaos!
+                            case .holyGrenade: bounce = 0.44
+                            default: bounce = 0.56
+                            }
+                            let friction: CGFloat = (p.weapon == .bananaBomb) ? 0.94 : 0.86
+                            p.velocity.dx = (p.velocity.dx - (1 + bounce) * vn * normal.dx) * friction
+                            p.velocity.dy = (p.velocity.dy - (1 + bounce) * vn * normal.dy) * friction
+                            if abs(vn) > 65 {
                                 pendingEvents.append(.grenadeBounce(position: nextPos))
                             }
                         }
@@ -881,9 +1051,23 @@ final class GameEngine {
     }
 
     private func detonate(projectile p: ProjectileState) {
-        let radius: CGFloat = p.isClusterBomblet ? 38 : p.weapon.explosionRadius
-        let maxDamage: Int = p.isClusterBomblet ? 24 : p.weapon.maxDamage
-        let knockback: CGFloat = p.isClusterBomblet ? 310 : p.weapon.knockbackSpeed
+        let radius: CGFloat
+        let maxDamage: Int
+        let knockback: CGFloat
+
+        if p.isSubmunition && p.weapon == .clusterBomb {
+            radius = 44
+            maxDamage = 24
+            knockback = 330
+        } else if p.isSubmunition && p.weapon == .bananaBomb {
+            radius = 66
+            maxDamage = 40
+            knockback = 460
+        } else {
+            radius = p.weapon.explosionRadius
+            maxDamage = p.weapon.maxDamage
+            knockback = p.weapon.knockbackSpeed
+        }
 
         triggerExplosion(
             at: p.position,
@@ -894,11 +1078,11 @@ final class GameEngine {
             isHoly: p.weapon == .holyGrenade
         )
 
-        // Cluster bomb spawns 5 impact bomblets!
-        if p.weapon == .clusterBomb && !p.isClusterBomblet {
+        // Cluster bomb -> 5 impact bomblets
+        if p.weapon == .clusterBomb && !p.isSubmunition {
             for k in 0..<5 {
-                let spreadAngle = (.pi * 0.22) + (CGFloat(k) / 4.0) * (.pi * 0.56)
-                let spd = rng.nextCGFloat(in: 260...410)
+                let spreadAngle = (.pi * 0.20) + (CGFloat(k) / 4.0) * (.pi * 0.60)
+                let spd = rng.nextCGFloat(in: 280...440)
                 let bomblet = ProjectileState(
                     id: nextProjectileID,
                     weapon: .clusterBomb,
@@ -907,10 +1091,30 @@ final class GameEngine {
                     position: CGPoint(x: p.position.x, y: p.position.y + 8),
                     velocity: CGVector(dx: cos(spreadAngle) * spd, dy: sin(spreadAngle) * spd),
                     fuseRemaining: nil,
-                    isClusterBomblet: true
+                    isSubmunition: true
                 )
                 nextProjectileID += 1
                 projectiles.append(bomblet)
+            }
+        }
+
+        // Banana bomb -> 6 wildly bouncing mini-bananas with staggered short fuses!
+        if p.weapon == .bananaBomb && !p.isSubmunition {
+            for k in 0..<6 {
+                let spreadAngle = (.pi * 0.16) + (CGFloat(k) / 5.0) * (.pi * 0.68)
+                let spd = rng.nextCGFloat(in: 340...540)
+                let miniBanana = ProjectileState(
+                    id: nextProjectileID,
+                    weapon: .bananaBomb,
+                    ownerTeamIndex: p.ownerTeamIndex,
+                    ownerWormID: -1,
+                    position: CGPoint(x: p.position.x, y: p.position.y + 10),
+                    velocity: CGVector(dx: cos(spreadAngle) * spd, dy: sin(spreadAngle) * spd),
+                    fuseRemaining: 1.1 + Double(k) * 0.18,
+                    isSubmunition: true
+                )
+                nextProjectileID += 1
+                projectiles.append(miniBanana)
             }
         }
     }
@@ -940,12 +1144,11 @@ final class GameEngine {
                 let dmg = max(1, Int(round(CGFloat(maxDamage) * falloff)))
                 applyDamage(to: i, amount: dmg, attackerTeam: ownerTeamIndex)
 
-                // Knockback impulse upward & outward
                 let nx = dist > 1 ? dx / dist : 0
                 let ny = dist > 1 ? dy / dist : 1
                 let impulse = knockback * falloff
                 worms[i].velocity.dx += nx * impulse * 0.92
-                worms[i].velocity.dy += max(150 * falloff, ny * impulse + 185 * falloff)
+                worms[i].velocity.dy += max(155 * falloff, ny * impulse + 190 * falloff)
                 worms[i].isGrounded = false
                 worms[i].fallStartY = worms[i].position.y
             }
@@ -969,20 +1172,20 @@ final class GameEngine {
     // MARK: - Supply Crates
 
     private func maybeSpawnCrate() {
-        guard turnNumber > 1, turnNumber % 3 == 0, crates.count < 2 else { return }
-        let x = rng.nextCGFloat(in: 240...(WorldConstants.width - 240))
+        guard turnNumber > 1, turnNumber % 2 == 0, crates.count < 3 else { return }
+        let x = rng.nextCGFloat(in: 280...(WorldConstants.width - 280))
         let kind: CrateKind
-        if rng.nextDouble() < 0.58 {
+        if rng.nextDouble() < 0.50 {
             kind = .health(amount: 25)
         } else {
-            let specials: [WeaponKind] = [.clusterBomb, .airstrike, .holyGrenade]
+            let specials: [WeaponKind] = [.clusterBomb, .airstrike, .holyGrenade, .bananaBomb, .sheep, .dynamite]
             let chosen = specials[Int(rng.nextUInt64() % UInt64(specials.count))]
             kind = .weapon(chosen)
         }
         crates.append(CrateState(
             id: nextCrateID,
             kind: kind,
-            position: CGPoint(x: x, y: WorldConstants.height - 30)
+            position: CGPoint(x: x, y: WorldConstants.height - 40)
         ))
         nextCrateID += 1
     }
@@ -996,13 +1199,13 @@ final class GameEngine {
                 continue
             }
 
-            let foot = CGPoint(x: c.position.x, y: c.position.y - 14)
+            let foot = CGPoint(x: c.position.x, y: c.position.y - 18)
             if terrain.isSolid(worldPoint: foot) {
                 c.isParachuting = false
                 c.velocity = .zero
             } else if c.isParachuting {
-                c.velocity.dx = wind * 58
-                c.velocity.dy = -72
+                c.velocity.dx = wind * 62
+                c.velocity.dy = -82
                 c.position.x = max(80, min(WorldConstants.width - 80, c.position.x + c.velocity.dx * CGFloat(dt)))
                 c.position.y += c.velocity.dy * CGFloat(dt)
             } else {
@@ -1010,11 +1213,10 @@ final class GameEngine {
                 c.position.y += c.velocity.dy * CGFloat(dt)
             }
 
-            // Check worm pickup
             var picked = false
             for wIdx in worms.indices {
                 guard worms[wIdx].isAlive else { continue }
-                if hypot(worms[wIdx].position.x - c.position.x, worms[wIdx].position.y - c.position.y) < 30 {
+                if hypot(worms[wIdx].position.x - c.position.x, worms[wIdx].position.y - c.position.y) < 36 {
                     switch c.kind {
                     case .health(let amt):
                         worms[wIdx].health = min(100, worms[wIdx].health + amt)
@@ -1071,11 +1273,9 @@ final class GameEngine {
 
         turnNumber += 1
 
-        // Sudden Death rising water!
         if turnNumber >= WorldConstants.suddenDeathStartTurn {
             waterY += WorldConstants.suddenDeathWaterStep
             pendingEvents.append(.suddenDeathTriggered(waterY: waterY))
-            // Immediately check if rising water drowned anyone
             for i in worms.indices where worms[i].isAlive && worms[i].position.y <= waterY + 4 {
                 worms[i].isDrowned = true
                 worms[i].health = 0
@@ -1090,7 +1290,6 @@ final class GameEngine {
             }
         }
 
-        // Next alive team
         var nextTeam = (currentTeamIndex + 1) % teams.count
         for _ in 0..<teams.count {
             if aliveTeamIndices().contains(nextTeam) {
@@ -1111,7 +1310,6 @@ final class GameEngine {
         isWeaponBarOpen = false
         lastExplosionPoint = nil
 
-        // Pick next alive worm on this team
         let teamWorms = worms.filter { $0.teamIndex == teamIndex && $0.isAlive }
         guard !teamWorms.isEmpty else {
             advanceTurnOrEndMatch()
@@ -1122,7 +1320,6 @@ final class GameEngine {
         teams[teamIndex].nextWormCursor = (cursor + 1) % max(1, teamWorms.count)
         activeWormID = chosenWorm.id
 
-        // Make sure selected weapon has ammo for the new team
         if !currentTeam.canUse(selectedWeapon) {
             selectedWeapon = .bazooka
         }

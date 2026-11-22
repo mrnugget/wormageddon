@@ -175,18 +175,9 @@ final class GameViewController: GCEventViewController {
                 if pad.leftShoulder.isPressed { anyL1 = true }
                 if pad.rightShoulder.isPressed { anyR1 = true }
                 if pad.buttonMenu.isPressed { anyMenu = true }
-            } else if let micro = controller.microGamepad {
-                // Siri Remote touchpad fallback when no discrete press arrow is held
-                if moveX == 0 && aimY == 0 {
-                    let tx = CGFloat(micro.dpad.xAxis.value)
-                    let ty = CGFloat(micro.dpad.yAxis.value)
-                    if abs(tx) > 0.42 && abs(tx) >= abs(ty) {
-                        moveX = tx > 0 ? 1 : -1
-                    } else if abs(ty) > 0.42 {
-                        aimY = ty > 0 ? 1 : -1
-                    }
-                }
             }
+            // Note: Deliberately ignoring touch-only microGamepad.dpad swipes/brushes so the
+            // Siri Remote responds only to deliberate physical button clicks (UIPress).
         }
 
         if anyGamepadFire || anyA || anyB || anyY || anyL1 || anyR1 || anyMenu {

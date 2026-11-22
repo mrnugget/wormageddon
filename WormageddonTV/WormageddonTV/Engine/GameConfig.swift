@@ -12,8 +12,8 @@ enum MapStyle: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .archipelago: return "Drei grüne Inseln im glitzernden Meer"
-        case .twinPeaks: return "Zwei hohe Gipfel mit einem grünen Tal"
+        case .archipelago: return "Vier grüne Inseln im glitzernden Meer"
+        case .twinPeaks: return "Hohe Bergketten mit weiten Tälern"
         case .canyon: return "Steile Klippen und eine mutige Brücke"
         case .fortress: return "Treppen-Inseln und geheime Verstecke"
         }
@@ -208,6 +208,10 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
     case shotgun = 3
     case airstrike = 4
     case holyGrenade = 5
+    case bananaBomb = 6
+    case sheep = 7
+    case firePunch = 8
+    case dynamite = 9
 
     var id: Int { rawValue }
 
@@ -219,62 +223,103 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .shotgun: return "Schrotflinte"
         case .airstrike: return "Luftangriff"
         case .holyGrenade: return "Heilige Granate"
+        case .bananaBomb: return "Bananenbombe"
+        case .sheep: return "Super-Schaf"
+        case .firePunch: return "Feuerfaust"
+        case .dynamite: return "Dynamit"
         }
     }
 
-    var shortLabel: String {
+    var iconName: String {
         switch self {
-        case .bazooka: return "BAZ"
-        case .grenade: return "GRN"
-        case .clusterBomb: return "STR"
-        case .shotgun: return "SCH"
-        case .airstrike: return "LUF"
-        case .holyGrenade: return "HLG"
+        case .bazooka: return "weapon_bazooka"
+        case .grenade: return "weapon_grenade"
+        case .clusterBomb: return "weapon_cluster"
+        case .shotgun: return "weapon_shotgun"
+        case .airstrike: return "weapon_airstrike"
+        case .holyGrenade: return "weapon_holy_grenade"
+        case .bananaBomb: return "weapon_banana"
+        case .sheep: return "weapon_sheep"
+        case .firePunch: return "weapon_firepunch"
+        case .dynamite: return "weapon_dynamite"
+        }
+    }
+
+    var tagBadge: String {
+        switch self {
+        case .bazooka: return "WIND"
+        case .grenade: return "3s ZÜNDER"
+        case .clusterBomb: return "5× SPLITTER"
+        case .shotgun: return "2 SCHÜSSE"
+        case .airstrike: return "5 RAKETEN"
+        case .holyGrenade: return "HALLELUJA!"
+        case .bananaBomb: return "6× BANANEN"
+        case .sheep: return "HÜPFT!"
+        case .firePunch: return "NAHKAMPF"
+        case .dynamite: return "WEGRENNEN!"
         }
     }
 
     var hint: String {
         switch self {
-        case .bazooka: return "Fliegt mit dem Wind · Auswahl halten für mehr Kraft"
+        case .bazooka: return "Fliegt mit dem Wind · Auswahl gedrückt halten für Kraft"
         case .grenade: return "Hüpft 3s bis zum Knall · Ohne Wind"
         case .clusterBomb: return "Zerplatzt nach 3s in 5 Mini-Knaller"
-        case .shotgun: return "Sofort-Treffer · 2 Schüsse pro Zug"
-        case .airstrike: return "Ziel mit ← / → wählen · Auswahl ruft 5 Raketen"
+        case .shotgun: return "Sofort-Treffer ohne Wind · Du darfst 2× pro Zug schießen!"
+        case .airstrike: return "Ziel mit ← / → wählen · Auswahl ruft 5 Raketen von oben"
         case .holyGrenade: return "Riesen-Knall nach 3,5s · Halleluja!"
+        case .bananaBomb: return "Hüpft wild & zerplatzt in 6 chaotische Mini-Bananen!"
+        case .sheep: return "Hoppelt los! Auswahl drücken für Sofort-Knall (oder nach 5,5s)"
+        case .firePunch: return "Feuriger Kinnhaken! Schleudert nahe Gegner weit weg"
+        case .dynamite: return "Vor dir ablegen (4s Zünder) – dann 3,5s schnell wegrennen!"
         }
     }
 
     var startingAmmo: Int? {
         switch self {
-        case .bazooka, .grenade, .shotgun: return nil // Unendlich
+        case .bazooka, .grenade, .shotgun, .firePunch: return nil // Unendlich
         case .clusterBomb: return 3
-        case .airstrike: return 1
+        case .airstrike: return 2
+        case .sheep: return 2
+        case .dynamite: return 2
         case .holyGrenade: return 1
+        case .bananaBomb: return 1
+        }
+    }
+
+    var shotsPerTurn: Int {
+        switch self {
+        case .shotgun: return 2
+        default: return 1
         }
     }
 
     var usesChargePower: Bool {
         switch self {
-        case .bazooka, .grenade, .clusterBomb, .holyGrenade: return true
-        case .shotgun, .airstrike: return false
+        case .bazooka, .grenade, .clusterBomb, .holyGrenade, .bananaBomb: return true
+        case .shotgun, .airstrike, .sheep, .firePunch, .dynamite: return false
         }
     }
 
     var affectedByWind: Bool {
         switch self {
         case .bazooka, .airstrike: return true
-        case .grenade, .clusterBomb, .shotgun, .holyGrenade: return false
+        default: return false
         }
     }
 
     var explosionRadius: CGFloat {
         switch self {
-        case .bazooka: return 68
-        case .grenade: return 62
-        case .clusterBomb: return 50
-        case .shotgun: return 22
-        case .airstrike: return 54
-        case .holyGrenade: return 118
+        case .bazooka: return 74
+        case .grenade: return 68
+        case .clusterBomb: return 54
+        case .shotgun: return 26
+        case .airstrike: return 60
+        case .holyGrenade: return 128
+        case .bananaBomb: return 76
+        case .sheep: return 94
+        case .firePunch: return 36
+        case .dynamite: return 104
         }
     }
 
@@ -286,42 +331,58 @@ enum WeaponKind: Int, CaseIterable, Identifiable {
         case .shotgun: return 25
         case .airstrike: return 32
         case .holyGrenade: return 75
+        case .bananaBomb: return 46
+        case .sheep: return 62
+        case .firePunch: return 35
+        case .dynamite: return 68
         }
     }
 
     var knockbackSpeed: CGFloat {
         switch self {
-        case .bazooka: return 440
-        case .grenade: return 410
-        case .clusterBomb: return 360
-        case .shotgun: return 270
-        case .airstrike: return 380
-        case .holyGrenade: return 620
+        case .bazooka: return 460
+        case .grenade: return 430
+        case .clusterBomb: return 370
+        case .shotgun: return 290
+        case .airstrike: return 400
+        case .holyGrenade: return 640
+        case .bananaBomb: return 480
+        case .sheep: return 540
+        case .firePunch: return 620
+        case .dynamite: return 580
         }
     }
 
     var accentColor: SKColor {
         switch self {
         case .bazooka: return SKColor(red: 0.98, green: 0.48, blue: 0.24, alpha: 1)
-        case .grenade: return SKColor(red: 0.34, green: 0.82, blue: 0.42, alpha: 1)
+        case .grenade: return SKColor(red: 0.34, green: 0.84, blue: 0.42, alpha: 1)
         case .clusterBomb: return SKColor(red: 0.96, green: 0.34, blue: 0.52, alpha: 1)
-        case .shotgun: return SKColor(red: 0.72, green: 0.78, blue: 0.88, alpha: 1)
+        case .shotgun: return SKColor(red: 0.74, green: 0.80, blue: 0.92, alpha: 1)
         case .airstrike: return SKColor(red: 0.30, green: 0.78, blue: 0.98, alpha: 1)
         case .holyGrenade: return SKColor(red: 1.00, green: 0.85, blue: 0.26, alpha: 1)
+        case .bananaBomb: return SKColor(red: 1.00, green: 0.88, blue: 0.18, alpha: 1)
+        case .sheep: return SKColor(red: 0.98, green: 0.56, blue: 0.72, alpha: 1)
+        case .firePunch: return SKColor(red: 1.00, green: 0.42, blue: 0.16, alpha: 1)
+        case .dynamite: return SKColor(red: 0.96, green: 0.24, blue: 0.26, alpha: 1)
         }
     }
 }
 
 enum WorldConstants {
-    static let width: CGFloat = 1920
-    static let height: CGFloat = 1080
-    static let initialWaterY: CGFloat = 88
+    /// 1080p tvOS viewport size
+    static let viewportWidth: CGFloat = 1920
+    static let viewportHeight: CGFloat = 1080
+    /// 50% larger destructible world with smooth camera panning & zooming
+    static let width: CGFloat = 2880
+    static let height: CGFloat = 1500
+    static let initialWaterY: CGFloat = 104
     static let gravity: CGFloat = -680
-    static let maxWindAccel: CGFloat = 290
-    static let wormRadius: CGFloat = 15
-    static let wormWalkSpeed: CGFloat = 108
-    static let wormMaxStepUp: CGFloat = 14
-    static let retreatDuration: TimeInterval = 3.0
-    static let suddenDeathStartTurn: Int = 14
-    static let suddenDeathWaterStep: CGFloat = 26
+    static let maxWindAccel: CGFloat = 310
+    static let wormRadius: CGFloat = 16
+    static let wormWalkSpeed: CGFloat = 122
+    static let wormMaxStepUp: CGFloat = 15
+    static let retreatDuration: TimeInterval = 3.5
+    static let suddenDeathStartTurn: Int = 16
+    static let suddenDeathWaterStep: CGFloat = 32
 }

@@ -42,7 +42,7 @@ final class TerrainMap {
     var worldWidth: CGFloat { CGFloat(pixelWidth) * worldScale }
     var worldHeight: CGFloat { CGFloat(pixelHeight) * worldScale }
 
-    init(style: MapStyle, theme: MapTheme, seed: UInt64, pixelWidth: Int = 960, pixelHeight: Int = 540, worldScale: CGFloat = 2.0) {
+    init(style: MapStyle, theme: MapTheme, seed: UInt64, pixelWidth: Int = 1440, pixelHeight: Int = 750, worldScale: CGFloat = 2.0) {
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         self.worldScale = worldScale
@@ -132,31 +132,12 @@ final class TerrainMap {
         return CGVector(dx: nx / len, dy: ny / len)
     }
 
-    /// Raycasts from `start` to `end` in world space, returning the first solid hit point if any.
-    func raycast(from start: CGPoint, to end: CGPoint) -> CGPoint? {
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let dist = hypot(dx, dy)
-        let steps = max(1, Int(ceil(dist / (worldScale * 0.75))))
-        for i in 1...steps {
-            let t = CGFloat(i) / CGFloat(steps)
-            let p = CGPoint(x: start.x + dx * t, y: start.y + dy * t)
-            if p.x < 0 || p.x > worldWidth || p.y < 0 || p.y > worldHeight {
-                return nil
-            }
-            if isSolid(worldPoint: p) {
-                return p
-            }
-        }
-        return nil
-    }
-
     // MARK: - Destructible Crater Carving
 
     @discardableResult
     func carveCrater(worldCenter: CGPoint, worldRadius: CGFloat) -> Int {
         let pxRadius = worldRadius / worldScale
-        let rimRadius = pxRadius + 3.2
+        let rimRadius = pxRadius + 3.5
         let (cx, cy) = (worldCenter.x / worldScale, worldCenter.y / worldScale)
 
         let minX = max(0, Int(floor(cx - rimRadius)))
@@ -191,7 +172,6 @@ final class TerrainMap {
                     rgbaBuffer[off + 3] = 0
                     removedCount += 1
                 } else if d2 <= rim2 {
-                    // Scorched/charred crater rim
                     let off = (bufRow + px) * 4
                     let rimT = (sqrt(d2) - pxRadius) / (rimRadius - pxRadius)
                     let darken = 0.28 + 0.52 * rimT
@@ -234,7 +214,7 @@ final class TerrainMap {
         return tex
     }
 
-    // MARK: - Procedural Generation
+    // MARK: - Procedural Generation (50% Larger Worlds)
 
     private func generateTerrain(style: MapStyle, seed: UInt64) {
         var rng = SeededRNG(seed: seed)
@@ -247,60 +227,64 @@ final class TerrainMap {
 
         for px in 0..<pixelWidth {
             let u = Double(px) / Double(pixelWidth) // 0...1
-            let edgeFade = smoothstep(0.03, 0.13, u) * smoothstep(0.03, 0.13, 1.0 - u)
+            let edgeFade = smoothstep(0.025, 0.095, u) * smoothstep(0.025, 0.095, 1.0 - u)
 
             let noise =
-                sin(u * .pi * 3.0 + phase1) * 38.0 +
-                sin(u * .pi * 7.0 + phase2) * 20.0 +
-                sin(u * .pi * 15.0 + phase3) * 8.0 +
-                sin(u * .pi * 27.0 + phase4) * 4.0
+                sin(u * .pi * 4.0 + phase1) * 46.0 +
+                sin(u * .pi * 9.0 + phase2) * 26.0 +
+                sin(u * .pi * 19.0 + phase3) * 11.0 +
+                sin(u * .pi * 33.0 + phase4) * 5.0
 
             var heightPx: Double = 0
 
             switch style {
             case .archipelago:
-                // Three broad flat-topped Worms-style islands with rolling shelves & clear sea gaps
-                let island1 = plateau(u, center: 0.19, halfWidth: 0.115) * 235.0
-                let island2 = plateau(u, center: 0.50, halfWidth: 0.135) * 275.0
-                let island3 = plateau(u, center: 0.81, halfWidth: 0.115) * 230.0
-                let base = max(island1, max(island2, island3))
-                heightPx = base + noise * 0.52 * smoothstep(55, 140, base)
+                // Four sweeping Worms-style islands across the 2880pt ocean
+                let i1 = plateau(u, center: 0.14, halfWidth: 0.092) * 320.0
+                let i2 = plateau(u, center: 0.38, halfWidth: 0.102) * 395.0
+                let i3 = plateau(u, center: 0.63, halfWidth: 0.102) * 375.0
+                let i4 = plateau(u, center: 0.86, halfWidth: 0.092) * 315.0
+                let base = max(max(i1, i2), max(i3, i4))
+                heightPx = base + noise * 0.56 * smoothstep(65, 160, base)
 
             case .twinPeaks:
-                let peakL = plateau(u, center: 0.25, halfWidth: 0.15) * 305.0
-                let peakR = plateau(u, center: 0.75, halfWidth: 0.15) * 305.0
-                let valley = 152.0 * edgeFade
-                heightPx = max(valley, max(peakL, peakR)) + noise * 0.58 * edgeFade
+                let peakL = plateau(u, center: 0.24, halfWidth: 0.145) * 435.0
+                let peakR = plateau(u, center: 0.76, halfWidth: 0.145) * 435.0
+                let midHill = plateau(u, center: 0.50, halfWidth: 0.095) * 255.0
+                let valley = 190.0 * edgeFade
+                heightPx = max(valley, max(midHill, max(peakL, peakR))) + noise * 0.60 * edgeFade
 
             case .canyon:
-                let plateauL = smoothstep(0.05, 0.14, u) * smoothstep(0.45, 0.36, u) * 305.0
-                let plateauR = smoothstep(0.55, 0.64, u) * smoothstep(0.95, 0.86, u) * 305.0
-                let bridge = plateau(u, center: 0.50, halfWidth: 0.085) * 155.0
-                heightPx = max(bridge, max(plateauL, plateauR)) + noise * 0.52 * edgeFade
+                let plateauL = smoothstep(0.03, 0.11, u) * smoothstep(0.43, 0.34, u) * 430.0
+                let plateauR = smoothstep(0.57, 0.66, u) * smoothstep(0.97, 0.89, u) * 430.0
+                let bridge = plateau(u, center: 0.50, halfWidth: 0.10) * 225.0
+                heightPx = max(bridge, max(plateauL, plateauR)) + noise * 0.54 * edgeFade
 
             case .fortress:
-                let step1 = smoothstep(0.08, 0.12, u) * smoothstep(0.92, 0.88, u) * 175.0
-                let step2 = smoothstep(0.20, 0.24, u) * smoothstep(0.80, 0.76, u) * 240.0
-                let keep = smoothstep(0.39, 0.43, u) * smoothstep(0.61, 0.57, u) * 310.0
-                let towerL = smoothstep(0.15, 0.17, u) * smoothstep(0.27, 0.25, u) * 278.0
-                let towerR = smoothstep(0.73, 0.75, u) * smoothstep(0.85, 0.83, u) * 278.0
+                let step1 = smoothstep(0.06, 0.10, u) * smoothstep(0.94, 0.90, u) * 240.0
+                let step2 = smoothstep(0.18, 0.22, u) * smoothstep(0.82, 0.78, u) * 335.0
+                let keep = smoothstep(0.39, 0.43, u) * smoothstep(0.61, 0.57, u) * 440.0
+                let towerL = smoothstep(0.14, 0.16, u) * smoothstep(0.25, 0.23, u) * 385.0
+                let towerR = smoothstep(0.75, 0.77, u) * smoothstep(0.86, 0.84, u) * 385.0
                 let raw = max(step1, max(step2, max(keep, max(towerL, towerR))))
-                heightPx = raw * edgeFade + (raw > 50 ? noise * 0.28 : 0)
+                heightPx = raw * edgeFade + (raw > 55 ? noise * 0.30 : 0)
             }
 
-            let clampedTop = min(pixelHeight - 55, Int(heightPx))
-            guard clampedTop > waterPx - 12 else { continue }
+            let clampedTop = min(pixelHeight - 95, Int(heightPx))
+            guard clampedTop > waterPx - 14 else { continue }
 
             for py in 0..<clampedTop {
                 solidMask[py * pixelWidth + px] = 1
             }
         }
 
-        // Carve a couple of scenic overhangs / arches on fortress or twin peaks
+        // Scenic tunnels / arches in Fortress and Canyon
         if style == .fortress {
-            carveDecorativeHole(pxCenter: pixelWidth / 2, pyCenter: 115, radius: 34)
+            carveDecorativeHole(pxCenter: pixelWidth / 2, pyCenter: 165, radius: 52)
+            carveDecorativeHole(pxCenter: pixelWidth / 4, pyCenter: 145, radius: 36)
+            carveDecorativeHole(pxCenter: (pixelWidth * 3) / 4, pyCenter: 145, radius: 36)
         } else if style == .canyon {
-            carveDecorativeHole(pxCenter: pixelWidth / 2, pyCenter: 65, radius: 28)
+            carveDecorativeHole(pxCenter: pixelWidth / 2, pyCenter: 95, radius: 44)
         }
     }
 
@@ -326,10 +310,9 @@ final class TerrainMap {
         let rock = theme.rockColor
 
         for px in 0..<pixelWidth {
-            // Track depth below open air for lush grass crust & sunlit rim
             var depthFromAir = 999
-            let xWave = sin(Double(px) * 0.022) * 8.0 + sin(Double(px) * 0.055) * 4.0
-            let grassThickness = 8 + Int((sin(Double(px) * 0.24) + 1.0) * 2.2)
+            let xWave = sin(Double(px) * 0.018) * 10.0 + sin(Double(px) * 0.048) * 5.0
+            let grassThickness = 10 + Int((sin(Double(px) * 0.20) + 1.0) * 2.5)
 
             for py in stride(from: pixelHeight - 1, through: 0, by: -1) {
                 let idx = py * pixelWidth + px
@@ -341,40 +324,35 @@ final class TerrainMap {
 
                 let bufOff = ((pixelHeight - 1 - py) * pixelWidth + px) * 4
 
-                // Smooth organic painter-style strata (no repeating hatch artifacts)
-                let strataWave = sin(Double(py) * 0.11 + xWave * 0.25)
-                let softMottle = sin(Double(px) * 0.09 + Double(py) * 0.07) * 5.0
-                    + cos(Double(px) * 0.045 - Double(py) * 0.13) * 4.0
+                let strataWave = sin(Double(py) * 0.095 + xWave * 0.25)
+                let softMottle = sin(Double(px) * 0.08 + Double(py) * 0.065) * 5.0
+                    + cos(Double(px) * 0.04 - Double(py) * 0.11) * 4.0
                 let subtleGrain = Int(softMottle)
 
-                let rockBoundary = 64 + Int(xWave * 1.4 + sin(Double(px) * 0.015) * 14.0)
+                let rockBoundary = 82 + Int(xWave * 1.5 + sin(Double(px) * 0.012) * 16.0)
 
                 var r: Int
                 var g: Int
                 var b: Int
 
                 if depthFromAir <= grassThickness {
-                    // Sunlit lush grass with soft gradient from bright top edge to rich emerald base
                     let t = Double(depthFromAir - 1) / Double(max(1, grassThickness - 1))
                     r = Int(Double(grassHi.r) * (1.0 - t) + Double(grass.r) * t) + subtleGrain / 2
                     g = Int(Double(grassHi.g) * (1.0 - t) + Double(grass.g) * t) + subtleGrain / 2
                     b = Int(Double(grassHi.b) * (1.0 - t) + Double(grass.b) * t) + subtleGrain / 3
-                } else if depthFromAir <= grassThickness + 4 {
-                    // Warm overhang shadow directly beneath the grass lip
+                } else if depthFromAir <= grassThickness + 5 {
                     r = Int(soil.r) - 24 + subtleGrain / 2
                     g = Int(soil.g) - 20 + subtleGrain / 2
                     b = Int(soil.b) - 16 + subtleGrain / 2
                 } else if depthFromAir < rockBoundary {
-                    // Smooth layered earth & warm sandstone bands
-                    let band = Int(strataWave * 10.0)
-                    let depthFade = Int(Double(depthFromAir - grassThickness) * 0.22)
+                    let band = Int(strataWave * 11.0)
+                    let depthFade = Int(Double(depthFromAir - grassThickness) * 0.20)
                     r = Int(soil.r) + band - depthFade + subtleGrain
                     g = Int(soil.g) + Int(Double(band) * 0.8) - depthFade + subtleGrain
                     b = Int(soil.b) + Int(Double(band) * 0.65) - depthFade / 2 + subtleGrain / 2
                 } else {
-                    // Smooth deep coastal cliff rock with subtle mineral bands
-                    let cliffBand = Int(sin(Double(py) * 0.07 - Double(px) * 0.02) * 9.0)
-                    let depthShade = min(26, (depthFromAir - rockBoundary) / 7)
+                    let cliffBand = Int(sin(Double(py) * 0.065 - Double(px) * 0.018) * 9.0)
+                    let depthShade = min(28, (depthFromAir - rockBoundary) / 9)
                     r = Int(rock.r) + cliffBand - depthShade + subtleGrain / 2
                     g = Int(rock.g) + cliffBand - depthShade + subtleGrain / 2
                     b = Int(rock.b) + Int(Double(cliffBand) * 1.1) - depthShade / 2 + subtleGrain / 2
@@ -392,11 +370,6 @@ final class TerrainMap {
     private func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
         let t = max(0.0, min(1.0, (x - edge0) / (edge1 - edge0)))
         return t * t * (3.0 - 2.0 * t)
-    }
-
-    private func gaussian(_ x: Double, center: Double, width: Double) -> Double {
-        let d = (x - center) / width
-        return exp(-d * d)
     }
 
     private func plateau(_ x: Double, center: Double, halfWidth: Double) -> Double {

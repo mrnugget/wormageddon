@@ -14,6 +14,9 @@ enum SoundEffect: CaseIterable {
     case cratePickup
     case holyChoir
     case victory
+    case sheepBaa
+    case firePunch
+    case dynamitePlace
 }
 
 final class SoundEngine {
@@ -181,6 +184,30 @@ final class SoundEngine {
                 sample += noteWave * noteEnv * 0.28
             }
             return Float(sample)
+        }
+
+        buffers[.sheepBaa] = makeBuffer(duration: 0.36) { t, _ in
+            let env: Double = sin(min(1.0, t / 0.36) * Double.pi)
+            let vibrato: Double = sin(twoPi * 26.0 * t) * 28.0
+            let f1: Double = 360.0 + vibrato
+            let f2: Double = 720.0 + vibrato * 1.5
+            let voice: Double = sin(twoPi * f1 * t) * 0.45 + sin(twoPi * f2 * t) * 0.25
+            return Float(voice * env * 0.55)
+        }
+
+        buffers[.firePunch] = makeBuffer(duration: 0.32) { t, _ in
+            let env: Double = exp(-t * 6.0)
+            let sweep: Double = 180.0 + t * 950.0
+            let punch: Double = sin(twoPi * sweep * t) * 0.5
+            let whoosh: Double = Double.random(in: -1.0...1.0) * 0.55
+            return Float((punch + whoosh) * env * 0.78)
+        }
+
+        buffers[.dynamitePlace] = makeBuffer(duration: 0.16) { t, _ in
+            let env: Double = exp(-t * 20.0)
+            let thud: Double = sin(twoPi * 150.0 * t) * 0.5
+            let sizzle: Double = Double.random(in: -1.0...1.0) * 0.35
+            return Float((thud + sizzle) * env * 0.6)
         }
     }
 
