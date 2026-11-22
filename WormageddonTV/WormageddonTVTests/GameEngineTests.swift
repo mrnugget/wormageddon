@@ -262,5 +262,11 @@ final class GameEngineTests: XCTestCase {
         engine.update(dt: 1.0 / 60.0, input: &land)
         XCTAssertEqual(engine.phase, .playerControl)
         XCTAssertEqual(engine.currentTeamIndex, teamBefore, "Jetpack should not end the player's turn")
+
+        // Verify Teleport rejects open ocean (edge x=60) and accepts open air above a solid island
+        XCTAssertFalse(engine.isValidTeleportTarget(CGPoint(x: 60, y: 800)), "Teleport must block open water")
+        let islandX = WorldConstants.width * 0.38
+        let islandTop = engine.terrain.surfaceY(atWorldX: islandX)!
+        XCTAssertTrue(engine.isValidTeleportTarget(CGPoint(x: islandX, y: islandTop + 80)), "Teleport should allow open air above solid land")
     }
 }

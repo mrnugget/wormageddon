@@ -1033,10 +1033,48 @@ final class GameEngine {
         phase = .blowtorching(remaining: remaining - dt)
     }
 
-    func isValidTeleportTarget(_ point: CGPoint) -> Bool {
+    enum TeleportValidation {
+        case valid(landingPoint: CGPoint)
+        case insideTerrain
+        case overWater
+    }
+
+    func validateTeleportTarget(_ point: CGPoint) -> TeleportValidation {
+        let r = WorldConstants.wormRadius
         guard point.x > 40, point.x < WorldConstants.width - 40,
-              point.y > waterY + 26, point.y < WorldConstants.height - 40 else { return false }
-        return !terrain.isSolidCircle(center: point, radius: WorldConstants.wormRadius + 2)
+              point.y > waterY + r + 8, point.y < WorldConstants.height - 40 else {
+            return .overWater
+        }
+        if terrain.isSolidCircle(center: point, radius: r + 1) {
+            return .insideTerrain
+        }
+        // Scan straight down from cursor to find the exact ledge below (works inside holes & under overhangs!)
+        let minY = waterY + r + 4
+        var y = point.y
+        while y >= minY {
+            let foot = CGPoint(x: point.x, y: y - r)
+            if terrain.isSolid(worldPoint: foot) {
+                // Lift cleanly above any sloped edge so hills & ledges are always landable
+                var landingY = y + 4
+                var lift = 0
+                while lift < 14 && terrain.isSolidCircle(center: CGPoint(x: point.x, y: landingY), radius: r * 0.80) {
+                    landingY += 2
+                    lift += 2
+                }
+                let landing = CGPoint(x: point.x, y: landingY)
+                if !terrain.isSolidCircle(center: landing, radius: r * 0.80) {
+                    return .valid(landingPoint: landing)
+                }
+                return .insideTerrain
+            }
+            y -= 2
+        }
+        return .overWater
+    }
+
+    func isValidTeleportTarget(_ point: CGPoint) -> Bool {
+        if case .valid = validateTeleportTarget(point) { return true }
+        return false
     }
 
     private func handleTeleportAiming(dt: TimeInterval, target: CGPoint, input: inout InputSnapshot) {
@@ -1053,20 +1091,21 @@ final class GameEngine {
             return
         }
 
-        let speed: CGFloat = 780
+        let speed: CGFloat = 620
         let nx = max(60, min(WorldConstants.width - 60, target.x + input.moveX * speed * CGFloat(dt)))
         let ny = max(waterY + 34, min(WorldConstants.height - 60, target.y + input.aimY * speed * CGFloat(dt)))
         let nextTarget = CGPoint(x: nx, y: ny)
 
-        if input.firePressed, isValidTeleportTarget(nextTarget),
+        if input.firePressed, case .valid(let landing) = validateTeleportTarget(nextTarget),
            let idx = worms.firstIndex(where: { $0.id == activeWormID }), worms[idx].isAlive {
             let oldPos = worms[idx].position
+            let arrivePos = CGPoint(x: landing.x, y: min(nextTarget.y, landing.y + 18))
             consumeAmmo(.teleport)
-            worms[idx].position = nextTarget
+            worms[idx].position = arrivePos
             worms[idx].velocity = .zero
             worms[idx].isGrounded = false
             worms[idx].fallStartY = nil
-            pendingEvents.append(.teleported(from: oldPos, to: nextTarget))
+            pendingEvents.append(.teleported(from: oldPos, to: arrivePos))
             phase = .settling(remaining: 1.0)
         } else {
             phase = .teleportAiming(target: nextTarget)

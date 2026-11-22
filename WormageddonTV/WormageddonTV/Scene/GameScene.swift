@@ -131,6 +131,8 @@ final class GameScene: SKScene {
     private let teleportOverlay = SKNode()
     private let teleportOuterRing = SKShapeNode(circleOfRadius: 34)
     private let teleportInnerRing = SKShapeNode(circleOfRadius: 20)
+    private let teleportDropBeam = SKShapeNode()
+    private let teleportLandingRing = SKShapeNode(ellipseOf: CGSize(width: 40, height: 14))
 
     // HUD Nodes (camera space — always anchored to 1920x1080 viewport!)
     private let hudLayer = SKNode()
@@ -698,6 +700,20 @@ final class GameScene: SKScene {
         teleportOverlay.addChild(portalIcon)
         teleportOverlay.isHidden = true
         worldLayer.addChild(teleportOverlay)
+
+        // Vertical drop beam + exact landing ring beneath Teleport portal
+        teleportDropBeam.strokeColor = Art.sun.withAlphaComponent(0.75)
+        teleportDropBeam.lineWidth = 3.5
+        teleportDropBeam.zPosition = 32
+        teleportDropBeam.isHidden = true
+        worldLayer.addChild(teleportDropBeam)
+
+        teleportLandingRing.strokeColor = Art.sun
+        teleportLandingRing.fillColor = Art.lagoon.withAlphaComponent(0.35)
+        teleportLandingRing.lineWidth = 3.2
+        teleportLandingRing.zPosition = 32
+        teleportLandingRing.isHidden = true
+        worldLayer.addChild(teleportLandingRing)
     }
 
     private func buildWormNodes() {
@@ -1433,17 +1449,36 @@ final class GameScene: SKScene {
             ropeOverlay.isHidden = true
         }
 
-        // Teleport live portal reticle
+        // Teleport live portal reticle + exact landing ledge preview
         if case .teleportAiming(let target) = engine.phase {
             teleportOverlay.isHidden = false
             teleportOverlay.position = target
-            let valid = engine.isValidTeleportTarget(target)
-            teleportOuterRing.strokeColor = valid ? Art.lagoon : Art.coral
-            teleportOuterRing.fillColor = (valid ? Art.lagoon : Art.coral).withAlphaComponent(0.20)
-            teleportInnerRing.strokeColor = valid ? Art.sun : Art.coral
             teleportOverlay.setScale(1.0 + CGFloat(sin(elapsedTime * 7.0) * 0.08))
+
+            switch engine.validateTeleportTarget(target) {
+            case .valid(let landing):
+                teleportOuterRing.strokeColor = Art.lagoon
+                teleportOuterRing.fillColor = Art.lagoon.withAlphaComponent(0.20)
+                teleportInnerRing.strokeColor = Art.sun
+                teleportDropBeam.isHidden = false
+                teleportLandingRing.isHidden = false
+                let beam = CGMutablePath()
+                beam.move(to: target)
+                beam.addLine(to: landing)
+                teleportDropBeam.path = beam
+                teleportLandingRing.position = CGPoint(x: landing.x, y: landing.y - WorldConstants.wormRadius + 2)
+                teleportLandingRing.setScale(1.0 + CGFloat(sin(elapsedTime * 9.0) * 0.10))
+            case .insideTerrain, .overWater:
+                teleportOuterRing.strokeColor = Art.coral
+                teleportOuterRing.fillColor = Art.coral.withAlphaComponent(0.24)
+                teleportInnerRing.strokeColor = Art.coral
+                teleportDropBeam.isHidden = true
+                teleportLandingRing.isHidden = true
+            }
         } else {
             teleportOverlay.isHidden = true
+            teleportDropBeam.isHidden = true
+            teleportLandingRing.isHidden = true
         }
     }
 
@@ -1642,10 +1677,18 @@ final class GameScene: SKScene {
             statusPillLabel.text = "SCHWEISSBRENNER · ↑/↓ TUNNEL LENKEN · AUSWAHL: STOP"
         } else if case .teleportAiming(let pt) = engine.phase {
             statusPillNode.isHidden = false
-            let valid = engine.isValidTeleportTarget(pt)
-            statusPillBg.fillColor = valid ? Art.lagoon : Art.coral
             statusPillLabel.fontColor = Art.cream
-            statusPillLabel.text = valid ? "TELEPORT · ←→↑↓ ZIEL WÄHLEN · AUSWAHL: ZAUBERN!" : "TELEPORT · HIER IST FELS – FREIEN PLATZ WÄHLEN!"
+            switch engine.validateTeleportTarget(pt) {
+            case .valid:
+                statusPillBg.fillColor = Art.lagoon
+                statusPillLabel.text = "TELEPORT · ←→↑↓ ZIEL WÄHLEN · AUSWAHL: LANDEN!"
+            case .insideTerrain:
+                statusPillBg.fillColor = Art.coral
+                statusPillLabel.text = "TELEPORT · HIER IST FELS – FREIEN PLATZ WÄHLEN!"
+            case .overWater:
+                statusPillBg.fillColor = Art.coral
+                statusPillLabel.text = "TELEPORT · NUR WASSER DARUNTER – ÜBER LAND ZIELEN!"
+            }
         } else if engine.shotgunShotsRemaining == 1 && engine.phase == .playerControl {
             statusPillNode.isHidden = false
             statusPillBg.fillColor = SKColor(red: 0.93, green: 0.55, blue: 0.20, alpha: 1)
