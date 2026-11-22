@@ -1,4 +1,73 @@
 import SpriteKit
+import SwiftUI
+
+/// "Sonnenfleck" art direction: hand-painted gouache storybook islands.
+/// One warm plum ink line, golden top-left light, lagoon rim light, and a
+/// small shared palette used by every layer (Painter assets, worms, terrain,
+/// sky, HUD and SwiftUI menus).
+enum Art {
+    static let ink = SKColor(red: 0.231, green: 0.133, blue: 0.271, alpha: 1)       // #3B2245
+    static let inkDeep = SKColor(red: 0.145, green: 0.086, blue: 0.180, alpha: 1)   // panels
+    static let inkSoft = SKColor(red: 0.290, green: 0.196, blue: 0.345, alpha: 1)   // cards, tracks
+    static let cream = SKColor(red: 1.0, green: 0.953, blue: 0.863, alpha: 1)       // #FFF3DC
+    static let coral = SKColor(red: 0.949, green: 0.329, blue: 0.357, alpha: 1)     // #F2545B
+    static let sun = SKColor(red: 1.0, green: 0.788, blue: 0.290, alpha: 1)         // #FFC94A
+    static let leaf = SKColor(red: 0.361, green: 0.769, blue: 0.420, alpha: 1)      // #5CC46B
+    static let lagoon = SKColor(red: 0.169, green: 0.702, blue: 0.753, alpha: 1)    // #2BB3C0
+    static let sky = SKColor(red: 0.298, green: 0.553, blue: 0.965, alpha: 1)       // #4C8DF6
+
+    /// SF Rounded, matching the SwiftUI menus.
+    static func font(_ size: CGFloat, _ weight: UIFont.Weight = .heavy) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        guard let rounded = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return UIFont(descriptor: rounded, size: size)
+    }
+
+    /// HUD label in SF Rounded.
+    static func label(_ size: CGFloat, _ weight: UIFont.Weight = .heavy, color: SKColor = cream) -> SKLabelNode {
+        let label = SKLabelNode(fontNamed: font(size, weight).fontName)
+        label.fontSize = size
+        label.fontColor = color
+        return label
+    }
+
+    static func outlinedText(_ text: String, size: CGFloat, color: SKColor, outline: SKColor = ink) -> NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        return NSAttributedString(string: text, attributes: [
+            .font: font(size, .black),
+            .foregroundColor: color,
+            .strokeColor: outline,
+            .strokeWidth: -5.0,
+            .paragraphStyle: para
+        ])
+    }
+
+    /// Rounded "ink plate" panel with a soft offset shadow, the HUD's one panel style.
+    /// Sits at z -1 so labels added next to it at z 0 always draw on top.
+    static func panel(_ rect: CGRect, radius: CGFloat, fillAlpha: CGFloat = 0.88, stroke: SKColor = cream.withAlphaComponent(0.20), lineWidth: CGFloat = 2.4) -> SKShapeNode {
+        let panel = SKShapeNode(path: CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        panel.fillColor = inkDeep.withAlphaComponent(fillAlpha)
+        panel.strokeColor = stroke
+        panel.lineWidth = lineWidth
+        panel.zPosition = -1
+        let shadow = SKShapeNode(path: CGPath(roundedRect: rect.offsetBy(dx: 0, dy: -5), cornerWidth: radius, cornerHeight: radius, transform: nil))
+        shadow.fillColor = SKColor(red: 0.08, green: 0.03, blue: 0.10, alpha: 0.32)
+        shadow.strokeColor = .clear
+        shadow.zPosition = -0.5
+        panel.addChild(shadow)
+        return panel
+    }
+}
+
+extension Color {
+    init(art: SKColor) { self.init(uiColor: art) }
+}
+
+extension WeaponKind {
+    /// Bold, simplified Painter sprite for small sizes (HUD chip, held weapon, projectile).
+    var smallIconName: String { iconName + "_small" }
+}
 
 protocol GameSceneDelegate: AnyObject {
     func gameSceneDidRequestPause()
@@ -29,6 +98,8 @@ final class GameScene: SKScene {
     private let cloudLayer = SKNode()
     private let propLayer = SKNode()
     private let terrainSprite = SKSpriteNode()
+    private var terrainInkLayers: [SKSpriteNode] = []
+    private let terrainPaintMask = SKSpriteNode()
     private let entityLayer = SKNode()
     private let fxLayer = SKNode()
     private let waterBackWave = SKShapeNode()
@@ -58,27 +129,27 @@ final class GameScene: SKScene {
     private let hudLayer = SKNode()
     private var teamScoreBars: [(fill: SKShapeNode, hpLabel: SKLabelNode, bg: SKShapeNode, maxHP: Int)] = []
     private let timerBadge = SKShapeNode()
-    private let timerLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+    private let timerLabel = Art.label(20, .heavy)
     private let weaponChipBg = SKShapeNode()
     private let weaponChipIcon = SKSpriteNode()
-    private let weaponChipTitle = SKLabelNode(fontNamed: "AvenirNext-Bold")
-    private let weaponChipAmmo = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let weaponChipTitle = Art.label(20, .bold)
+    private let weaponChipAmmo = Art.label(20, .semibold)
     private let windBarFill = SKShapeNode()
-    private let windTextLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let windTextLabel = Art.label(20, .bold)
     private let turnBannerNode = SKNode()
     private let turnBannerBg = SKShapeNode()
-    private let turnBannerTitle = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-    private let turnBannerSubtitle = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let turnBannerTitle = Art.label(20, .heavy)
+    private let turnBannerSubtitle = Art.label(20, .semibold)
     private let statusPillNode = SKNode()
     private let statusPillBg = SKShapeNode()
-    private let statusPillLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-    private let controlsHintLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let statusPillLabel = Art.label(20, .heavy)
+    private let controlsHintLabel = Art.label(20, .semibold)
 
     // 2×5 Illustrated Weapon Drawer Overlay
     private let weaponBarContainer = SKNode()
     private var weaponBarSlots: [(bg: SKShapeNode, ammoLabel: SKLabelNode, kind: WeaponKind)] = []
-    private let weaponBarSelectedTitle = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-    private let weaponBarHintLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let weaponBarSelectedTitle = Art.label(20, .heavy)
+    private let weaponBarHintLabel = Art.label(20, .semibold)
 
     private var lastChipWeapon: WeaponKind?
     private var didNotifyMatchEnd = false
@@ -108,6 +179,60 @@ final class GameScene: SKScene {
         terrainSprite.size = CGSize(width: WorldConstants.width, height: WorldConstants.height)
         terrainSprite.zPosition = 10
         worldLayer.addChild(terrainSprite)
+
+        // Plum ink outline + soft drop shadow around the destructible terrain, built
+        // from tinted copies of the terrain texture so craters get outlined too.
+        terrainInkLayers.removeAll()
+        let inkOffsets: [(CGPoint, SKColor, CGFloat)] = [
+            (CGPoint(x: 0, y: -9), SKColor(red: 0.10, green: 0.04, blue: 0.14, alpha: 1), 0.30),
+            (CGPoint(x: -3.5, y: 0), Art.ink, 1), (CGPoint(x: 3.5, y: 0), Art.ink, 1),
+            (CGPoint(x: 0, y: 3.5), Art.ink, 1), (CGPoint(x: 0, y: -3.5), Art.ink, 1),
+            (CGPoint(x: -2.5, y: 2.5), Art.ink, 1), (CGPoint(x: 2.5, y: 2.5), Art.ink, 1),
+            (CGPoint(x: -2.5, y: -2.5), Art.ink, 1), (CGPoint(x: 2.5, y: -2.5), Art.ink, 1)
+        ]
+        for (offset, color, alpha) in inkOffsets {
+            let ink = SKSpriteNode()
+            ink.anchorPoint = .zero
+            ink.size = terrainSprite.size
+            ink.position = offset
+            ink.color = color
+            ink.colorBlendFactor = 1
+            ink.alpha = alpha
+            ink.zPosition = 9.5
+            worldLayer.addChild(ink)
+            terrainInkLayers.append(ink)
+        }
+
+        // Hand-painted gouache brushwork multiplied over the procedural terrain,
+        // clipped to the live terrain texture so craters stay clean.
+        terrainPaintMask.anchorPoint = .zero
+        terrainPaintMask.size = terrainSprite.size
+        let paintCrop = SKCropNode()
+        paintCrop.maskNode = terrainPaintMask
+        paintCrop.zPosition = 10.5
+        let paintTex = SKTexture(imageNamed: "terrain_paint")
+        let tile: CGFloat = 400
+        var ty: CGFloat = 0
+        var row = 0
+        while ty < WorldConstants.height {
+            var tx: CGFloat = 0
+            var col = 0
+            while tx < WorldConstants.width {
+                let t = SKSpriteNode(texture: paintTex, size: CGSize(width: tile, height: tile))
+                t.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+                t.position = CGPoint(x: tx + tile * 0.5, y: ty + tile * 0.5)
+                // Mirror alternate tiles so the seams line up
+                t.xScale = col % 2 == 0 ? 1 : -1
+                t.yScale = row % 2 == 0 ? 1 : -1
+                t.blendMode = .multiply
+                paintCrop.addChild(t)
+                tx += tile
+                col += 1
+            }
+            ty += tile
+            row += 1
+        }
+        worldLayer.addChild(paintCrop)
 
         propLayer.zPosition = 12
         worldLayer.addChild(propLayer)
@@ -154,18 +279,18 @@ final class GameScene: SKScene {
         skySprite.zPosition = 0
         skyLayer.addChild(skySprite)
 
-        // Twinkling upper-sky stars
+        // Twinkling upper-sky stars (small four-point sparkles in warm cream)
         twinklingStars.removeAll()
         if theme.showsStars {
             var rng = SeededRNG(seed: engine.config.seed ^ 0x51A4)
-            for _ in 0..<72 {
-                let r = rng.nextCGFloat(in: 1.4...3.0)
-                let star = SKShapeNode(circleOfRadius: r)
-                star.fillColor = SKColor(red: 1.0, green: 0.97, blue: 0.88, alpha: 0.88)
+            for _ in 0..<64 {
+                let r = rng.nextCGFloat(in: 2.2...4.4)
+                let star = SKShapeNode(path: sparklePath(radius: r))
+                star.fillColor = Art.cream.withAlphaComponent(0.9)
                 star.strokeColor = .clear
                 star.position = CGPoint(
                     x: rng.nextCGFloat(in: 60...(WorldConstants.width - 60)),
-                    y: rng.nextCGFloat(in: (WorldConstants.height * 0.52)...(WorldConstants.height - 36))
+                    y: rng.nextCGFloat(in: (WorldConstants.height * 0.55)...(WorldConstants.height - 36))
                 )
                 star.zPosition = 1
                 skyLayer.addChild(star)
@@ -173,9 +298,9 @@ final class GameScene: SKScene {
             }
         }
 
-        // Layered luminous sun / moon halo
+        // Painted sun / moon: soft halo rings plus a cream disc with a plum ink rim
         let sunPos = CGPoint(x: WorldConstants.width * 0.76, y: WorldConstants.height * 0.78)
-        for (radius, alpha) in [(240, 0.07), (162, 0.13), (108, 0.22)] as [(CGFloat, CGFloat)] {
+        for (radius, alpha) in [(260, 0.06), (180, 0.11), (120, 0.20)] as [(CGFloat, CGFloat)] {
             let glow = SKShapeNode(circleOfRadius: radius)
             glow.fillColor = theme.sunColor.withAlphaComponent(alpha)
             glow.strokeColor = .clear
@@ -183,49 +308,45 @@ final class GameScene: SKScene {
             glow.zPosition = 1
             skyLayer.addChild(glow)
         }
-
-        let sunDisc = SKShapeNode(circleOfRadius: 72)
+        let sunDisc = SKShapeNode(circleOfRadius: 74)
         sunDisc.fillColor = theme.sunColor
-        sunDisc.strokeColor = .clear
+        sunDisc.strokeColor = Art.ink.withAlphaComponent(0.35)
+        sunDisc.lineWidth = 4
         sunDisc.position = sunPos
         sunDisc.zPosition = 2
         skyLayer.addChild(sunDisc)
+        let sunShine = SKShapeNode(ellipseOf: CGSize(width: 54, height: 34))
+        sunShine.fillColor = SKColor.white.withAlphaComponent(0.45)
+        sunShine.strokeColor = .clear
+        sunShine.position = CGPoint(x: sunPos.x - 20, y: sunPos.y + 24)
+        sunShine.zRotation = 0.5
+        sunShine.zPosition = 2.1
+        skyLayer.addChild(sunShine)
 
-        // Two sweeping parallax mountain ranges spanning the 2880pt horizon
-        let farPath = makeMountainPath(points: [
-            (-160, 360), (220, 620), (620, 420), (1040, 740),
-            (1480, 480), (1920, 700), (2360, 440), (2740, 630), (3080, 380)
-        ])
-        let farRidge = SKShapeNode(path: farPath)
-        farRidge.fillColor = theme.farHillColor
-        farRidge.strokeColor = .clear
-        farRidge.zPosition = 2.5
-        skyLayer.addChild(farRidge)
+        // Two painted parallax island ranges (one Painter strip, tinted per mood)
+        addHorizonStrip(scale: 2.25, baseY: 70, color: theme.farHillColor, z: 2.5, flipped: false, xOffset: -260)
+        addHorizonStrip(scale: 1.55, baseY: 56, color: theme.hillColor, z: 3, flipped: true, xOffset: 120)
 
-        let nearPath = makeMountainPath(points: [
-            (-160, 260), (260, 480), (680, 310), (1120, 560),
-            (1580, 350), (2040, 540), (2480, 340), (3080, 280)
-        ])
-        let nearRidge = SKShapeNode(path: nearPath)
-        nearRidge.fillColor = theme.hillColor
-        nearRidge.strokeColor = .clear
-        nearRidge.zPosition = 3
-        skyLayer.addChild(nearRidge)
-
-        // Seamless fluffy drifting clouds
+        // Painted gouache clouds drifting with the wind
         cloudLayer.zPosition = 5
         clouds.removeAll()
-        for i in 0..<11 {
-            let cloud = makeCloudNode(scale: CGFloat(0.95 + Double(i % 3) * 0.42))
+        let cloudTint = theme.showsStars ? theme.skyMid : theme.sunColor
+        for i in 0..<10 {
+            let cloud = SKSpriteNode(imageNamed: "bg_cloud")
+            cloud.setScale(CGFloat(0.55 + Double(i % 3) * 0.28))
+            cloud.color = cloudTint
+            cloud.colorBlendFactor = theme.showsStars ? 0.45 : 0.12
+            cloud.alpha = theme.showsStars ? 0.62 : 0.92
+            if i % 2 == 1 { cloud.xScale *= -1 }
             cloud.position = CGPoint(
-                x: CGFloat(i) * 280 + 80,
-                y: WorldConstants.height - 150 - CGFloat((i * 67) % 310)
+                x: CGFloat(i) * 310 + 80,
+                y: WorldConstants.height - 140 - CGFloat((i * 67) % 330)
             )
             cloudLayer.addChild(cloud)
             clouds.append((cloud, CGFloat(0.65 + Double(i % 4) * 0.25)))
         }
 
-        // Distant gliding silhouette birds for lively sky detail
+        // Distant gliding birds in soft plum ink
         skyBirds.removeAll()
         for i in 0..<5 {
             let bird = makeBirdNode()
@@ -238,11 +359,11 @@ final class GameScene: SKScene {
             skyBirds.append((bird, CGFloat(34 + i * 7), Double(i) * 1.3))
         }
 
-        // Subtle wind motes / firefly dust across the larger world
+        // Drifting pollen motes across the larger world
         windMotes.removeAll()
         for i in 0..<42 {
             let mote = SKShapeNode(circleOfRadius: CGFloat(2.0 + Double(i % 3) * 0.9))
-            mote.fillColor = SKColor(red: 1.0, green: 0.96, blue: 0.85, alpha: 0.38)
+            mote.fillColor = Art.cream.withAlphaComponent(0.42)
             mote.strokeColor = .clear
             mote.position = CGPoint(
                 x: CGFloat((i * 113) % Int(WorldConstants.width)),
@@ -254,51 +375,53 @@ final class GameScene: SKScene {
         }
     }
 
-    private func makeBirdNode() -> SKNode {
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: -11, y: 2))
-        p.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: -5, y: 7))
-        p.addQuadCurve(to: CGPoint(x: 11, y: 2), control: CGPoint(x: 5, y: 7))
-        let bird = SKShapeNode(path: p)
-        bird.strokeColor = SKColor(white: 0.12, alpha: 0.42)
-        bird.lineWidth = 2.2
-        bird.lineCap = .round
-        return bird
+    private func addHorizonStrip(scale: CGFloat, baseY: CGFloat, color: SKColor, z: CGFloat, flipped: Bool, xOffset: CGFloat) {
+        let probe = SKTexture(imageNamed: "bg_far_islands")
+        let stripW = probe.size().width * scale
+        var x = xOffset
+        var i = 0
+        while x < WorldConstants.width + 300 {
+            let strip = SKSpriteNode(texture: probe)
+            strip.anchorPoint = CGPoint(x: 0, y: 0)
+            strip.setScale(scale)
+            let flip = (i % 2 == 1) != flipped
+            if flip {
+                strip.xScale = -scale
+                strip.position = CGPoint(x: x + stripW, y: baseY)
+            } else {
+                strip.position = CGPoint(x: x, y: baseY)
+            }
+            strip.color = color.withAlphaComponent(1)
+            strip.colorBlendFactor = 0.82
+            strip.alpha = max(0.55, color.cgColor.alpha)
+            strip.zPosition = z
+            skyLayer.addChild(strip)
+            x += stripW - 2
+            i += 1
+        }
     }
 
-    private func makeMountainPath(points: [(CGFloat, CGFloat)]) -> CGPath {
+    private func sparklePath(radius r: CGFloat) -> CGPath {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: points[0].0, y: 0))
-        p.addLine(to: CGPoint(x: points[0].0, y: points[0].1))
-        for i in 1..<points.count {
-            let prev = points[i - 1]
-            let curr = points[i]
-            let midX = (prev.0 + curr.0) * 0.5
-            p.addCurve(
-                to: CGPoint(x: curr.0, y: curr.1),
-                control1: CGPoint(x: midX, y: prev.1),
-                control2: CGPoint(x: midX, y: curr.1)
-            )
-        }
-        p.addLine(to: CGPoint(x: points.last!.0, y: 0))
+        p.move(to: CGPoint(x: 0, y: r))
+        p.addQuadCurve(to: CGPoint(x: r, y: 0), control: .zero)
+        p.addQuadCurve(to: CGPoint(x: 0, y: -r), control: .zero)
+        p.addQuadCurve(to: CGPoint(x: -r, y: 0), control: .zero)
+        p.addQuadCurve(to: CGPoint(x: 0, y: r), control: .zero)
         p.closeSubpath()
         return p
     }
 
-    private func makeCloudNode(scale: CGFloat) -> SKNode {
+    private func makeBirdNode() -> SKNode {
         let p = CGMutablePath()
-        p.move(to: CGPoint(x: -66, y: -18))
-        p.addCurve(to: CGPoint(x: -54, y: 18), control1: CGPoint(x: -82, y: -14), control2: CGPoint(x: -76, y: 16))
-        p.addCurve(to: CGPoint(x: -6, y: 34), control1: CGPoint(x: -44, y: 36), control2: CGPoint(x: -22, y: 40))
-        p.addCurve(to: CGPoint(x: 42, y: 20), control1: CGPoint(x: 14, y: 44), control2: CGPoint(x: 36, y: 36))
-        p.addCurve(to: CGPoint(x: 68, y: -18), control1: CGPoint(x: 72, y: 18), control2: CGPoint(x: 84, y: -12))
-        p.closeSubpath()
-
-        let cloud = SKShapeNode(path: p)
-        cloud.fillColor = SKColor(white: 1.0, alpha: 0.22)
-        cloud.strokeColor = .clear
-        cloud.setScale(scale)
-        return cloud
+        p.move(to: CGPoint(x: -12, y: 2))
+        p.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: -5, y: 8))
+        p.addQuadCurve(to: CGPoint(x: 12, y: 2), control: CGPoint(x: 5, y: 8))
+        let bird = SKShapeNode(path: p)
+        bird.strokeColor = Art.ink.withAlphaComponent(0.55)
+        bird.lineWidth = 2.6
+        bird.lineCap = .round
+        return bird
     }
 
     private func makeSkyGradientTexture(top: SKColor, mid: SKColor, bottom: SKColor) -> SKTexture {
@@ -353,7 +476,7 @@ final class GameScene: SKScene {
         return SKTexture()
     }
 
-    // MARK: - Destructible Illustrated Island Props (Painter Assets!)
+    // MARK: - Destructible Painted Island Props (Painter Assets)
 
     private func buildSurfaceProps() {
         propLayer.removeAllChildren()
@@ -362,40 +485,56 @@ final class GameScene: SKScene {
         var rng = SeededRNG(seed: engine.config.seed ^ 0xF10E)
         var towersPlaced = 0
         var lastTowerX: CGFloat = -999
+        var lastTallX: CGFloat = -999
 
         var x: CGFloat = 120
         while x < WorldConstants.width - 120 {
-            x += rng.nextCGFloat(in: 38...78)
+            x += rng.nextCGFloat(in: 40...84)
             guard let sy = engine.terrain.surfaceY(atWorldX: x),
                   sy > WorldConstants.initialWaterY + 34,
                   let syL = engine.terrain.surfaceY(atWorldX: x - 20),
                   let syR = engine.terrain.surfaceY(atWorldX: x + 20),
                   abs(syL - syR) < 22 else { continue }
 
-            let nearWorm = engine.worms.contains { hypot($0.position.x - x, $0.position.y - sy) < 30 }
+            let nearWorm = engine.worms.contains { hypot($0.position.x - x, $0.position.y - sy) < 34 }
             if nearWorm { continue }
 
+            // (asset, target height range, sways in the breeze)
             let roll = rng.nextDouble()
-            let sprite: SKSpriteNode
-
-            if towersPlaced < 2 && sy > 500 && (x - lastTowerX) > 740 && roll < 0.28 {
-                sprite = SKSpriteNode(imageNamed: "prop_tower")
-                let s = rng.nextCGFloat(in: 0.72...0.86)
-                sprite.size = CGSize(width: 96 * s, height: 132 * s)
+            let pick: (String, ClosedRange<CGFloat>, Bool)
+            if towersPlaced < 2 && sy > 500 && (x - lastTowerX) > 740 && roll < 0.22 {
+                pick = ("prop_tower", 118...138, false)
                 towersPlaced += 1
                 lastTowerX = x
-            } else if roll < 0.56 {
-                sprite = SKSpriteNode(imageNamed: "prop_tree")
-                let s = rng.nextCGFloat(in: 0.72...1.08)
-                sprite.size = CGSize(width: 92 * s, height: 108 * s)
+                lastTallX = x
+            } else if roll < 0.42 && (x - lastTallX) > 120 {
+                pick = Bool(rng.nextDouble() < 0.5) ? ("prop_tree", 96...132, true) : ("prop_palm", 118...152, true)
+                lastTallX = x
+            } else if roll < 0.68 {
+                pick = ("prop_flowers", 30...44, false)
+            } else if roll < 0.84 {
+                pick = ("prop_rocks", 30...46, false)
             } else {
-                sprite = SKSpriteNode(imageNamed: "prop_flowers")
-                let s = rng.nextCGFloat(in: 0.68...0.96)
-                sprite.size = CGSize(width: 68 * s, height: 54 * s)
+                continue
             }
 
-            sprite.anchorPoint = CGPoint(x: 0.5, y: 0.04)
-            sprite.position = CGPoint(x: x, y: sy - 4)
+            let sprite = SKSpriteNode(imageNamed: pick.0)
+            let targetH = rng.nextCGFloat(in: pick.1)
+            sprite.setScale(targetH / max(1, sprite.size.height))
+            if rng.nextDouble() < 0.5 { sprite.xScale *= -1 }
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0.03)
+            sprite.position = CGPoint(x: x, y: sy - 5)
+            sprite.zPosition = pick.2 ? 0 : 1
+            if pick.2 {
+                let amp = CGFloat(0.022 + rng.nextDouble() * 0.02)
+                let dur = 1.6 + rng.nextDouble() * 0.9
+                let sway = SKAction.sequence([
+                    .rotate(toAngle: amp, duration: dur, shortestUnitArc: true),
+                    .rotate(toAngle: -amp, duration: dur, shortestUnitArc: true)
+                ])
+                sway.timingMode = .easeInEaseOut
+                sprite.run(.repeatForever(sway))
+            }
             propLayer.addChild(sprite)
             surfaceProps.append(SurfaceProp(node: sprite, anchor: CGPoint(x: x, y: sy - 10)))
         }
@@ -406,6 +545,7 @@ final class GameScene: SKScene {
         while i < surfaceProps.count {
             let prop = surfaceProps[i]
             if !engine.terrain.isSolid(worldPoint: prop.anchor) {
+                prop.node.removeAllActions()
                 prop.node.run(.sequence([
                     .group([
                         .moveBy(x: CGFloat.random(in: -34...34), y: 42, duration: 0.42),
@@ -424,32 +564,53 @@ final class GameScene: SKScene {
     // MARK: - Aiming & World Indicators
 
     private func buildAimingIndicators() {
-        let ring = SKShapeNode(circleOfRadius: 13)
-        ring.strokeColor = SKColor(red: 1.0, green: 0.92, blue: 0.28, alpha: 0.96)
-        ring.lineWidth = 2.8
+        // Crosshair: sunflower ring on a thick plum ink ring so it pops on sky and terrain
+        let inkRing = SKShapeNode(circleOfRadius: 14)
+        inkRing.strokeColor = Art.ink
+        inkRing.lineWidth = 7
+        inkRing.fillColor = Art.cream.withAlphaComponent(0.18)
+        aimCrosshair.addChild(inkRing)
+
+        let ring = SKShapeNode(circleOfRadius: 14)
+        ring.strokeColor = Art.sun
+        ring.lineWidth = 3.2
         ring.fillColor = .clear
         aimCrosshair.addChild(ring)
 
-        let ticks = SKShapeNode(path: {
+        let tickPath: CGPath = {
             let p = CGMutablePath()
-            p.move(to: CGPoint(x: -19, y: 0)); p.addLine(to: CGPoint(x: -8, y: 0))
-            p.move(to: CGPoint(x: 8, y: 0)); p.addLine(to: CGPoint(x: 19, y: 0))
-            p.move(to: CGPoint(x: 0, y: -19)); p.addLine(to: CGPoint(x: 0, y: -8))
-            p.move(to: CGPoint(x: 0, y: 8)); p.addLine(to: CGPoint(x: 0, y: 19))
+            p.move(to: CGPoint(x: -22, y: 0)); p.addLine(to: CGPoint(x: -9, y: 0))
+            p.move(to: CGPoint(x: 9, y: 0)); p.addLine(to: CGPoint(x: 22, y: 0))
+            p.move(to: CGPoint(x: 0, y: -22)); p.addLine(to: CGPoint(x: 0, y: -9))
+            p.move(to: CGPoint(x: 0, y: 9)); p.addLine(to: CGPoint(x: 0, y: 22))
             return p
-        }())
-        ticks.strokeColor = .white
-        ticks.lineWidth = 2.2
+        }()
+        let tickInk = SKShapeNode(path: tickPath)
+        tickInk.strokeColor = Art.ink
+        tickInk.lineWidth = 6.5
+        tickInk.lineCap = .round
+        aimCrosshair.addChild(tickInk)
+        let ticks = SKShapeNode(path: tickPath)
+        ticks.strokeColor = Art.cream
+        ticks.lineWidth = 2.6
+        ticks.lineCap = .round
         aimCrosshair.addChild(ticks)
+
+        let center = SKShapeNode(circleOfRadius: 3)
+        center.fillColor = Art.coral
+        center.strokeColor = Art.ink
+        center.lineWidth = 1.6
+        aimCrosshair.addChild(center)
         aimCrosshair.zPosition = 28
         worldLayer.addChild(aimCrosshair)
 
-        // Subtle dotted sightline between worm and crosshair
+        // Dotted sightline between worm and crosshair
         aimDots.removeAll()
         for i in 0..<3 {
-            let dot = SKShapeNode(circleOfRadius: CGFloat(3.2 - Double(i) * 0.5))
-            dot.fillColor = SKColor(red: 1.0, green: 0.95, blue: 0.65, alpha: 0.65)
-            dot.strokeColor = .clear
+            let dot = SKShapeNode(circleOfRadius: CGFloat(3.8 - Double(i) * 0.5))
+            dot.fillColor = Art.cream
+            dot.strokeColor = Art.ink
+            dot.lineWidth = 1.8
             dot.zPosition = 27
             worldLayer.addChild(dot)
             aimDots.append(dot)
@@ -460,15 +621,24 @@ final class GameScene: SKScene {
         worldLayer.addChild(powerMeterNode)
 
         airstrikeOverlay.zPosition = 32
-        airstrikeBeam.strokeColor = SKColor(red: 0.35, green: 0.85, blue: 1.0, alpha: 0.72)
-        airstrikeBeam.lineWidth = 3.5
+        airstrikeBeam.strokeColor = Art.sky.withAlphaComponent(0.85)
+        airstrikeBeam.lineWidth = 4
         airstrikeOverlay.addChild(airstrikeBeam)
 
+        let retInk = SKShapeNode(circleOfRadius: 42)
+        retInk.strokeColor = Art.ink
+        retInk.lineWidth = 9
+        retInk.fillColor = Art.coral.withAlphaComponent(0.20)
+        airstrikeReticle.addChild(retInk)
         let ret = SKShapeNode(circleOfRadius: 42)
-        ret.strokeColor = SKColor(red: 1.0, green: 0.35, blue: 0.30, alpha: 0.95)
-        ret.fillColor = SKColor(red: 1.0, green: 0.35, blue: 0.30, alpha: 0.18)
-        ret.lineWidth = 3.8
+        ret.strokeColor = Art.coral
+        ret.lineWidth = 4
+        ret.fillColor = .clear
         airstrikeReticle.addChild(ret)
+        let plane = SKSpriteNode(imageNamed: WeaponKind.airstrike.smallIconName)
+        plane.setScale(44 / max(1, plane.size.height))
+        plane.position = CGPoint(x: 0, y: 70)
+        airstrikeReticle.addChild(plane)
         airstrikeOverlay.addChild(airstrikeReticle)
         airstrikeOverlay.isHidden = true
         worldLayer.addChild(airstrikeOverlay)
@@ -492,209 +662,217 @@ final class GameScene: SKScene {
         let safeX: CGFloat = 84
         let safeY: CGFloat = 58
 
-        // Top-Left: Team Scoreboard
+        // Top-Left: Team Scoreboard (ink plates with a team-color health bar)
         teamScoreBars.removeAll()
         for (idx, team) in engine.teams.enumerated() {
             let maxHP = engine.config.wormsPerTeam * 100
-            let yOffset = halfH - safeY - 22 - CGFloat(idx) * 46
+            let yOffset = halfH - safeY - 24 - CGFloat(idx) * 52
             let xLeft = -halfW + safeX
 
-            let bg = SKShapeNode(rectOf: CGSize(width: 320, height: 36), cornerRadius: 10)
-            bg.fillColor = SKColor(red: 0.06, green: 0.08, blue: 0.14, alpha: 0.82)
-            bg.strokeColor = team.descriptor.color.withAlphaComponent(0.65)
-            bg.lineWidth = 2.0
-            bg.position = CGPoint(x: xLeft + 160, y: yOffset)
+            let bg = Art.panel(CGRect(x: -170, y: -21, width: 340, height: 42), radius: 14, stroke: team.descriptor.color)
+            bg.position = CGPoint(x: xLeft + 170, y: yOffset)
             hudLayer.addChild(bg)
 
-            let name = SKLabelNode(fontNamed: "AvenirNext-Bold")
-            name.text = "S\(idx + 1) \(team.descriptor.name)"
-            name.fontSize = 15
-            name.fontColor = .white
+            let dot = SKShapeNode(circleOfRadius: 9)
+            dot.fillColor = team.descriptor.color
+            dot.strokeColor = Art.cream
+            dot.lineWidth = 2
+            dot.position = CGPoint(x: xLeft + 22, y: yOffset + 4)
+            hudLayer.addChild(dot)
+
+            let name = Art.label(16, .bold)
+            name.text = "S\(idx + 1) · \(team.descriptor.name)"
             name.horizontalAlignmentMode = .left
             name.verticalAlignmentMode = .center
-            name.position = CGPoint(x: xLeft + 14, y: yOffset + 6)
+            name.position = CGPoint(x: xLeft + 40, y: yOffset + 5)
             hudLayer.addChild(name)
 
-            let hpLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+            let hpLabel = Art.label(17, .heavy, color: team.descriptor.color)
             hpLabel.text = "\(maxHP)"
-            hpLabel.fontSize = 15
-            hpLabel.fontColor = team.descriptor.color
             hpLabel.horizontalAlignmentMode = .right
             hpLabel.verticalAlignmentMode = .center
-            hpLabel.position = CGPoint(x: xLeft + 306, y: yOffset + 6)
+            hpLabel.position = CGPoint(x: xLeft + 326, y: yOffset + 5)
             hudLayer.addChild(hpLabel)
 
-            let track = SKShapeNode(rect: CGRect(x: xLeft + 14, y: yOffset - 12, width: 292, height: 7), cornerRadius: 3.5)
-            track.fillColor = SKColor(white: 1.0, alpha: 0.14)
+            let track = SKShapeNode(rect: CGRect(x: xLeft + 40, y: yOffset - 14, width: 286, height: 8), cornerRadius: 4)
+            track.fillColor = Art.inkSoft
             track.strokeColor = .clear
             hudLayer.addChild(track)
 
             let fill = SKShapeNode()
             fill.fillColor = team.descriptor.color
             fill.strokeColor = .clear
-            fill.position = CGPoint(x: xLeft + 14, y: yOffset - 12)
+            fill.position = CGPoint(x: xLeft + 40, y: yOffset - 14)
             hudLayer.addChild(fill)
 
             teamScoreBars.append((fill, hpLabel, bg, maxHP))
         }
 
         // Top-Right: Wind Gauge
-        let windX = halfW - safeX - 135
-        let windY = halfH - safeY - 24
-        let windBg = SKShapeNode(rectOf: CGSize(width: 270, height: 54), cornerRadius: 12)
-        windBg.fillColor = SKColor(red: 0.06, green: 0.08, blue: 0.14, alpha: 0.84)
-        windBg.strokeColor = SKColor(white: 1.0, alpha: 0.22)
-        windBg.lineWidth = 2.0
+        let windX = halfW - safeX - 140
+        let windY = halfH - safeY - 26
+        let windBg = Art.panel(CGRect(x: -140, y: -30, width: 280, height: 60), radius: 16)
         windBg.position = CGPoint(x: windX, y: windY)
         hudLayer.addChild(windBg)
 
-        windTextLabel.fontSize = 15
-        windTextLabel.fontColor = SKColor(red: 0.74, green: 0.92, blue: 1.0, alpha: 1)
+        windTextLabel.fontSize = 16
+        windTextLabel.fontColor = Art.cream
         windTextLabel.verticalAlignmentMode = .center
-        windTextLabel.position = CGPoint(x: windX, y: windY + 11)
+        windTextLabel.position = CGPoint(x: windX, y: windY + 12)
         hudLayer.addChild(windTextLabel)
 
-        let windTrack = SKShapeNode(rectOf: CGSize(width: 230, height: 10), cornerRadius: 5)
-        windTrack.fillColor = SKColor(white: 1.0, alpha: 0.14)
+        let windTrack = SKShapeNode(rectOf: CGSize(width: 236, height: 12), cornerRadius: 6)
+        windTrack.fillColor = Art.inkSoft
         windTrack.strokeColor = .clear
         windTrack.position = CGPoint(x: windX, y: windY - 12)
         hudLayer.addChild(windTrack)
-
-        let centerTick = SKShapeNode(rectOf: CGSize(width: 2.5, height: 16))
-        centerTick.fillColor = SKColor(white: 1.0, alpha: 0.7)
-        centerTick.strokeColor = .clear
-        centerTick.position = CGPoint(x: windX, y: windY - 12)
-        hudLayer.addChild(centerTick)
 
         windBarFill.position = CGPoint(x: windX, y: windY - 12)
         windBarFill.strokeColor = .clear
         hudLayer.addChild(windBarFill)
 
-        // Bottom-Left: Turn Timer + Active Weapon Chip with Painter Icon
-        let blX = -halfW + safeX
-        let blY = -halfH + safeY + 30
+        let centerTick = SKShapeNode(rectOf: CGSize(width: 3, height: 18), cornerRadius: 1.5)
+        centerTick.fillColor = Art.cream
+        centerTick.strokeColor = .clear
+        centerTick.position = CGPoint(x: windX, y: windY - 12)
+        hudLayer.addChild(centerTick)
 
-        timerBadge.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: 88, height: 68), cornerWidth: 15, cornerHeight: 15, transform: nil)
-        timerBadge.fillColor = SKColor(red: 0.06, green: 0.08, blue: 0.14, alpha: 0.88)
-        timerBadge.strokeColor = SKColor(white: 1.0, alpha: 0.28)
-        timerBadge.lineWidth = 2.5
-        timerBadge.position = CGPoint(x: blX, y: blY - 34)
+        // Bottom-Left: Turn Timer + Active Weapon Chip (bold small sprite)
+        let blX = -halfW + safeX
+        let blY = -halfH + safeY + 34
+
+        timerBadge.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: 88, height: 72), cornerWidth: 18, cornerHeight: 18, transform: nil)
+        timerBadge.fillColor = Art.inkDeep.withAlphaComponent(0.9)
+        timerBadge.strokeColor = Art.cream.withAlphaComponent(0.25)
+        timerBadge.lineWidth = 3
+        timerBadge.position = CGPoint(x: blX, y: blY - 36)
+        timerBadge.zPosition = -1
         hudLayer.addChild(timerBadge)
 
-        timerLabel.fontSize = 34
-        timerLabel.fontColor = .white
+        timerLabel.fontSize = 36
+        timerLabel.fontColor = Art.cream
         timerLabel.verticalAlignmentMode = .center
         timerLabel.position = CGPoint(x: blX + 44, y: blY)
         hudLayer.addChild(timerLabel)
 
-        weaponChipBg.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: 318, height: 68), cornerWidth: 15, cornerHeight: 15, transform: nil)
-        weaponChipBg.fillColor = SKColor(red: 0.06, green: 0.08, blue: 0.14, alpha: 0.88)
-        weaponChipBg.strokeColor = SKColor(white: 1.0, alpha: 0.28)
-        weaponChipBg.lineWidth = 2.4
-        weaponChipBg.position = CGPoint(x: blX + 102, y: blY - 34)
+        weaponChipBg.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: 340, height: 72), cornerWidth: 18, cornerHeight: 18, transform: nil)
+        weaponChipBg.fillColor = Art.inkDeep.withAlphaComponent(0.9)
+        weaponChipBg.lineWidth = 3
+        weaponChipBg.position = CGPoint(x: blX + 100, y: blY - 36)
+        weaponChipBg.zPosition = -1
         hudLayer.addChild(weaponChipBg)
 
-        weaponChipIcon.size = CGSize(width: 50, height: 50)
-        weaponChipIcon.position = CGPoint(x: blX + 136, y: blY)
+        let chipDisc = SKShapeNode(circleOfRadius: 28)
+        chipDisc.fillColor = Art.cream
+        chipDisc.strokeColor = Art.ink
+        chipDisc.lineWidth = 2
+        chipDisc.position = CGPoint(x: blX + 138, y: blY)
+        hudLayer.addChild(chipDisc)
+
+        weaponChipIcon.position = CGPoint(x: blX + 138, y: blY)
+        weaponChipIcon.zPosition = 1
         hudLayer.addChild(weaponChipIcon)
 
-        weaponChipTitle.fontSize = 20
-        weaponChipTitle.fontColor = .white
+        weaponChipTitle.fontSize = 21
+        weaponChipTitle.fontColor = Art.cream
         weaponChipTitle.horizontalAlignmentMode = .left
         weaponChipTitle.verticalAlignmentMode = .center
-        weaponChipTitle.position = CGPoint(x: blX + 170, y: blY + 11)
+        weaponChipTitle.position = CGPoint(x: blX + 178, y: blY + 12)
         hudLayer.addChild(weaponChipTitle)
 
         weaponChipAmmo.fontSize = 15
-        weaponChipAmmo.fontColor = SKColor(red: 0.88, green: 0.92, blue: 0.98, alpha: 0.90)
         weaponChipAmmo.horizontalAlignmentMode = .left
         weaponChipAmmo.verticalAlignmentMode = .center
-        weaponChipAmmo.position = CGPoint(x: blX + 170, y: blY - 12)
+        weaponChipAmmo.position = CGPoint(x: blX + 178, y: blY - 13)
         hudLayer.addChild(weaponChipAmmo)
 
         // Bottom-Right: Control Hint Strip
-        let hintBg = SKShapeNode(rectOf: CGSize(width: 820, height: 40), cornerRadius: 12)
-        hintBg.fillColor = SKColor(red: 0.05, green: 0.07, blue: 0.12, alpha: 0.78)
-        hintBg.strokeColor = SKColor(white: 1.0, alpha: 0.16)
-        hintBg.lineWidth = 1.4
-        hintBg.position = CGPoint(x: halfW - safeX - 410, y: blY - 10)
+        let hintBg = Art.panel(CGRect(x: -400, y: -21, width: 800, height: 42), radius: 21, fillAlpha: 0.78, stroke: Art.cream.withAlphaComponent(0.14), lineWidth: 1.6)
+        hintBg.position = CGPoint(x: halfW - safeX - 400, y: blY - 12)
         hudLayer.addChild(hintBg)
 
         controlsHintLabel.fontSize = 15.5
-        controlsHintLabel.fontColor = SKColor(white: 0.94, alpha: 0.95)
+        controlsHintLabel.fontColor = Art.cream.withAlphaComponent(0.95)
         controlsHintLabel.verticalAlignmentMode = .center
         controlsHintLabel.position = hintBg.position
         hudLayer.addChild(controlsHintLabel)
 
-        // Top-Center: Turn Announcement Banner
-        turnBannerNode.position = CGPoint(x: 0, y: halfH - safeY - 56)
-        turnBannerBg.path = CGPath(roundedRect: CGRect(x: -350, y: -42, width: 700, height: 84), cornerWidth: 18, cornerHeight: 18, transform: nil)
-        turnBannerBg.fillColor = SKColor(red: 0.07, green: 0.09, blue: 0.16, alpha: 0.94)
-        turnBannerBg.strokeColor = .white
-        turnBannerBg.lineWidth = 3.0
+        // Top-Center: Turn Announcement Banner (cream ribbon with team-colored ink)
+        turnBannerNode.position = CGPoint(x: 0, y: halfH - safeY - 60)
+        turnBannerBg.path = CGPath(roundedRect: CGRect(x: -360, y: -46, width: 720, height: 92), cornerWidth: 24, cornerHeight: 24, transform: nil)
+        turnBannerBg.fillColor = Art.cream
+        turnBannerBg.lineWidth = 5
         turnBannerNode.addChild(turnBannerBg)
+        let bannerShadow = SKShapeNode(path: CGPath(roundedRect: CGRect(x: -360, y: -53, width: 720, height: 92), cornerWidth: 24, cornerHeight: 24, transform: nil))
+        bannerShadow.fillColor = Art.ink.withAlphaComponent(0.45)
+        bannerShadow.strokeColor = .clear
+        bannerShadow.zPosition = -1
+        turnBannerNode.addChild(bannerShadow)
 
-        turnBannerTitle.fontSize = 27
-        turnBannerTitle.fontColor = .white
+        turnBannerTitle.fontSize = 28
+        turnBannerTitle.fontColor = Art.ink
         turnBannerTitle.verticalAlignmentMode = .center
-        turnBannerTitle.position = CGPoint(x: 0, y: 12)
+        turnBannerTitle.position = CGPoint(x: 0, y: 13)
+        turnBannerTitle.zPosition = 1
         turnBannerNode.addChild(turnBannerTitle)
 
         turnBannerSubtitle.fontSize = 18
-        turnBannerSubtitle.fontColor = SKColor(white: 0.88, alpha: 1)
+        turnBannerSubtitle.fontColor = Art.inkSoft
         turnBannerSubtitle.verticalAlignmentMode = .center
-        turnBannerSubtitle.position = CGPoint(x: 0, y: -18)
+        turnBannerSubtitle.position = CGPoint(x: 0, y: -19)
+        turnBannerSubtitle.zPosition = 1
         turnBannerNode.addChild(turnBannerSubtitle)
         hudLayer.addChild(turnBannerNode)
 
-        // Top-Center Persistent Status Pill (for Shotgun 2nd Shot / Dynamite Retreat!)
+        // Top-Center Persistent Status Pill (Shotgun 2nd shot / Dynamite retreat)
         statusPillNode.position = CGPoint(x: 0, y: halfH - safeY - 34)
-        statusPillBg.path = CGPath(roundedRect: CGRect(x: -280, y: -22, width: 560, height: 44), cornerWidth: 22, cornerHeight: 22, transform: nil)
-        statusPillBg.fillColor = SKColor(red: 0.95, green: 0.36, blue: 0.18, alpha: 0.94)
-        statusPillBg.strokeColor = .white
-        statusPillBg.lineWidth = 2.4
+        statusPillBg.path = CGPath(roundedRect: CGRect(x: -290, y: -24, width: 580, height: 48), cornerWidth: 24, cornerHeight: 24, transform: nil)
+        statusPillBg.strokeColor = Art.ink
+        statusPillBg.lineWidth = 4
         statusPillNode.addChild(statusPillBg)
 
         statusPillLabel.fontSize = 20
-        statusPillLabel.fontColor = .white
+        statusPillLabel.fontColor = Art.cream
         statusPillLabel.verticalAlignmentMode = .center
+        statusPillLabel.zPosition = 1
         statusPillNode.addChild(statusPillLabel)
         statusPillNode.isHidden = true
         hudLayer.addChild(statusPillNode)
     }
 
-    // MARK: - 2×5 Illustrated Weapon Drawer (Painter Icons!)
+    // MARK: - 2×5 Painted Weapon Drawer (large Painter icons)
 
     private func buildWeaponBar() {
         weaponBarContainer.position = CGPoint(x: 0, y: -28)
         weaponBarContainer.zPosition = 130
         weaponBarContainer.isHidden = true
 
-        // Dark translucent backdrop dimmer so the weapon arsenal really pops!
-        let backdrop = SKShapeNode(rectOf: CGSize(width: 1120, height: 460), cornerRadius: 28)
-        backdrop.fillColor = SKColor(red: 0.05, green: 0.07, blue: 0.14, alpha: 0.95)
-        backdrop.strokeColor = SKColor(white: 1.0, alpha: 0.24)
-        backdrop.lineWidth = 2.8
+        let backdrop = Art.panel(CGRect(x: -580, y: -250, width: 1160, height: 500), radius: 36, fillAlpha: 0.96, stroke: Art.cream.withAlphaComponent(0.28), lineWidth: 3)
         weaponBarContainer.addChild(backdrop)
 
-        let header = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+        // Header ribbon
+        let ribbon = SKShapeNode(rectOf: CGSize(width: 340, height: 50), cornerRadius: 25)
+        ribbon.fillColor = Art.sun
+        ribbon.strokeColor = Art.ink
+        ribbon.lineWidth = 4
+        ribbon.position = CGPoint(x: 0, y: 250)
+        weaponBarContainer.addChild(ribbon)
+
+        let header = Art.label(24, .black, color: Art.ink)
         header.text = "WAFFENKAMMER"
-        header.fontSize = 24
-        header.fontColor = SKColor(red: 1.0, green: 0.86, blue: 0.38, alpha: 1)
         header.verticalAlignmentMode = .center
-        header.position = CGPoint(x: 0, y: 192)
+        header.position = CGPoint(x: 0, y: 250)
         weaponBarContainer.addChild(header)
 
         weaponBarSlots.removeAll()
         let weapons = WeaponKind.allCases
         let cols = 5
-        let cardW: CGFloat = 196
-        let cardH: CGFloat = 148
-        let gapX: CGFloat = 16
-        let gapY: CGFloat = 16
+        let cardW: CGFloat = 200
+        let cardH: CGFloat = 164
+        let gapX: CGFloat = 18
         let totalW = CGFloat(cols) * cardW + CGFloat(cols - 1) * gapX
         let startX = -totalW * 0.5 + cardW * 0.5
-        let rowY: [CGFloat] = [88, -76]
+        let rowY: [CGFloat] = [104, -76]
 
         for (i, weapon) in weapons.enumerated() {
             let row = i / cols
@@ -702,81 +880,73 @@ final class GameScene: SKScene {
             let x = startX + CGFloat(col) * (cardW + gapX)
             let y = rowY[min(row, rowY.count - 1)]
 
-            let slotBg = SKShapeNode(rectOf: CGSize(width: cardW, height: cardH), cornerRadius: 18)
-            slotBg.fillColor = SKColor(white: 1.0, alpha: 0.08)
-            slotBg.strokeColor = weapon.accentColor.withAlphaComponent(0.55)
-            slotBg.lineWidth = 2.2
+            let slotBg = SKShapeNode(rectOf: CGSize(width: cardW, height: cardH), cornerRadius: 22)
+            slotBg.fillColor = Art.inkSoft
+            slotBg.lineWidth = 3
             slotBg.position = CGPoint(x: x, y: y)
             weaponBarContainer.addChild(slotBg)
 
-            // Soft circular glow behind the Painter icon
-            let glow = SKShapeNode(circleOfRadius: 36)
-            glow.fillColor = weapon.accentColor.withAlphaComponent(0.20)
-            glow.strokeColor = .clear
-            glow.position = CGPoint(x: 0, y: 12)
-            slotBg.addChild(glow)
+            // Cream "paper" medallion behind the painted icon
+            let medallion = SKShapeNode(circleOfRadius: 46)
+            medallion.fillColor = Art.cream.withAlphaComponent(0.16)
+            medallion.strokeColor = weapon.accentColor.withAlphaComponent(0.55)
+            medallion.lineWidth = 2.5
+            medallion.position = CGPoint(x: 0, y: 14)
+            slotBg.addChild(medallion)
 
-            // Illustrated Painter weapon icon!
             let icon = SKSpriteNode(imageNamed: weapon.iconName)
-            icon.size = CGSize(width: 78, height: 78)
-            icon.position = CGPoint(x: 0, y: 12)
+            let iconScale = 92 / max(icon.size.width, icon.size.height)
+            icon.setScale(iconScale)
+            icon.position = CGPoint(x: 0, y: 14)
             slotBg.addChild(icon)
 
-            // Feature tag pill (top-left) — e.g. "2 SCHÜSSE", "HÜPFT!", "WEGRENNEN!"
-            let tagW = CGFloat(weapon.tagBadge.count) * 6.4 + 14
-            let tagBg = SKShapeNode(rectOf: CGSize(width: tagW, height: 20), cornerRadius: 6)
-            tagBg.fillColor = weapon == .shotgun
-                ? SKColor(red: 1.0, green: 0.62, blue: 0.14, alpha: 0.96)
-                : weapon.accentColor.withAlphaComponent(0.88)
-            tagBg.strokeColor = .clear
-            tagBg.position = CGPoint(x: -cardW * 0.5 + tagW * 0.5 + 8, y: cardH * 0.5 - 17)
+            // Feature tag pill (top-left), e.g. "2 SCHÜSSE", "HÜPFT!", "WEGRENNEN!"
+            let tagW = CGFloat(weapon.tagBadge.count) * 6.6 + 16
+            let tagBg = SKShapeNode(rectOf: CGSize(width: tagW, height: 22), cornerRadius: 11)
+            tagBg.fillColor = weapon == .shotgun ? Art.sun : weapon.accentColor
+            tagBg.strokeColor = Art.ink
+            tagBg.lineWidth = 2
+            tagBg.position = CGPoint(x: -cardW * 0.5 + tagW * 0.5 + 8, y: cardH * 0.5 - 16)
             slotBg.addChild(tagBg)
 
-            let tagLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+            let tagLabel = Art.label(10.5, .black, color: Art.ink)
             tagLabel.text = weapon.tagBadge
-            tagLabel.fontSize = 10.5
-            tagLabel.fontColor = SKColor(white: 0.06, alpha: 1)
             tagLabel.verticalAlignmentMode = .center
             tagBg.addChild(tagLabel)
 
             // Ammo pill (top-right)
-            let ammoBg = SKShapeNode(rectOf: CGSize(width: 38, height: 22), cornerRadius: 7)
-            ammoBg.fillColor = SKColor(white: 0.0, alpha: 0.55)
-            ammoBg.strokeColor = SKColor(white: 1.0, alpha: 0.22)
-            ammoBg.lineWidth = 1.2
-            ammoBg.position = CGPoint(x: cardW * 0.5 - 27, y: cardH * 0.5 - 18)
+            let ammoBg = SKShapeNode(rectOf: CGSize(width: 40, height: 24), cornerRadius: 12)
+            ammoBg.fillColor = Art.inkDeep
+            ammoBg.strokeColor = Art.cream.withAlphaComponent(0.4)
+            ammoBg.lineWidth = 1.5
+            ammoBg.position = CGPoint(x: cardW * 0.5 - 28, y: cardH * 0.5 - 17)
             slotBg.addChild(ammoBg)
 
-            let ammo = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+            let ammo = Art.label(14, .heavy)
             ammo.text = "∞"
-            ammo.fontSize = 13.5
-            ammo.fontColor = .white
             ammo.verticalAlignmentMode = .center
             ammoBg.addChild(ammo)
 
-            // Weapon Name
-            let title = SKLabelNode(fontNamed: "AvenirNext-Bold")
+            let title = Art.label(17, .heavy)
             title.text = weapon.name
-            title.fontSize = 16.5
-            title.fontColor = .white
             title.verticalAlignmentMode = .center
-            title.position = CGPoint(x: 0, y: -48)
+            title.position = CGPoint(x: 0, y: -56)
             slotBg.addChild(title)
 
             weaponBarSlots.append((slotBg, ammo, weapon))
         }
 
-        // Bottom info strip for highlighted weapon
-        weaponBarSelectedTitle.fontSize = 20
-        weaponBarSelectedTitle.fontColor = SKColor(red: 1.0, green: 0.90, blue: 0.45, alpha: 1)
+        // Bottom info strip for the highlighted weapon
+        weaponBarSelectedTitle.fontSize = 21
+        weaponBarSelectedTitle.fontColor = Art.sun
         weaponBarSelectedTitle.verticalAlignmentMode = .center
-        weaponBarSelectedTitle.position = CGPoint(x: 0, y: -176)
+        weaponBarSelectedTitle.position = CGPoint(x: 0, y: -188)
         weaponBarContainer.addChild(weaponBarSelectedTitle)
 
         weaponBarHintLabel.fontSize = 17
-        weaponBarHintLabel.fontColor = SKColor(red: 0.90, green: 0.94, blue: 1.0, alpha: 0.95)
+        weaponBarHintLabel.fontColor = Art.cream.withAlphaComponent(0.92)
         weaponBarHintLabel.verticalAlignmentMode = .center
-        weaponBarHintLabel.position = CGPoint(x: 0, y: -202)
+        weaponBarHintLabel.position = CGPoint(x: 0, y: -216)
         weaponBarContainer.addChild(weaponBarHintLabel)
 
         hudLayer.addChild(weaponBarContainer)
@@ -818,7 +988,10 @@ final class GameScene: SKScene {
     private func syncTerrainTextureIfNeeded() {
         guard renderedTerrainRevision != engine.terrain.revision else { return }
         renderedTerrainRevision = engine.terrain.revision
-        terrainSprite.texture = engine.terrain.makeTexture()
+        let tex = engine.terrain.makeTexture()
+        terrainSprite.texture = tex
+        for ink in terrainInkLayers { ink.texture = tex }
+        terrainPaintMask.texture = tex
         pruneDestroyedProps()
     }
 
@@ -873,8 +1046,8 @@ final class GameScene: SKScene {
         p.closeSubpath()
         node.path = p
         node.fillColor = color
-        node.strokeColor = SKColor(white: 1.0, alpha: 0.44)
-        node.lineWidth = 2.8
+        node.strokeColor = Art.cream.withAlphaComponent(node === waterFrontWave ? 0.85 : 0.4)
+        node.lineWidth = node === waterFrontWave ? 4 : 3
     }
 
     // MARK: - Entity Synchronization
@@ -919,7 +1092,7 @@ final class GameScene: SKScene {
             if let fuse = proj.fuseRemaining, let label = node.childNode(withName: "fuseLabel") as? SKLabelNode {
                 let sec = max(1, Int(ceil(fuse)))
                 label.text = "\(sec)"
-                label.fontColor = fuse < 1.0 ? SKColor(red: 1.0, green: 0.30, blue: 0.25, alpha: 1) : .white
+                label.fontColor = fuse < 1.0 ? Art.coral : Art.cream
             }
             if (proj.weapon == .bazooka || proj.weapon == .airstrike || (proj.weapon == .clusterBomb && proj.isSubmunition)) && Int(elapsedTime * 60) % 2 == 0 {
                 spawnSmokePuff(at: proj.position, radius: proj.isSubmunition ? 4 : 6, alpha: 0.52)
@@ -934,30 +1107,33 @@ final class GameScene: SKScene {
         let body = SKNode()
         body.name = "body"
 
+        // Flying projectiles use the bold small sprites plus a soft cream halo so
+        // they always separate from sky, terrain and water.
+        func sprite(_ name: String, maxSide: CGFloat) -> SKSpriteNode {
+            let s = SKSpriteNode(imageNamed: name)
+            s.setScale(maxSide / max(1, max(s.size.width, s.size.height)))
+            return s
+        }
+
         switch proj.weapon {
         case .bazooka, .airstrike:
-            let shell = SKShapeNode(rectOf: CGSize(width: 24, height: 9), cornerRadius: 3.5)
-            shell.fillColor = proj.weapon == .airstrike ? SKColor(red: 0.28, green: 0.74, blue: 0.98, alpha: 1) : SKColor(red: 0.92, green: 0.30, blue: 0.20, alpha: 1)
-            shell.strokeColor = SKColor(white: 0.1, alpha: 1)
-            shell.lineWidth = 1.6
-            body.addChild(shell)
-
-            let flame = SKShapeNode(circleOfRadius: 5)
-            flame.fillColor = SKColor(red: 1.0, green: 0.84, blue: 0.22, alpha: 0.95)
-            flame.strokeColor = .clear
-            flame.position = CGPoint(x: -13, y: 0)
-            body.addChild(flame)
+            let rocket = sprite("proj_rocket", maxSide: proj.weapon == .airstrike ? 38 : 42)
+            if proj.weapon == .airstrike {
+                rocket.color = Art.sky
+                rocket.colorBlendFactor = 0.45
+            }
+            body.addChild(rocket)
 
         case .grenade, .clusterBomb, .holyGrenade, .bananaBomb, .dynamite:
-            let sprite = SKSpriteNode(imageNamed: proj.weapon.iconName)
-            let sz: CGFloat = proj.isSubmunition ? 22 : (proj.weapon == .dynamite ? 36 : 30)
-            sprite.size = CGSize(width: sz, height: sz)
-            body.addChild(sprite)
+            let sz: CGFloat = proj.isSubmunition ? 24 : (proj.weapon == .dynamite ? 40 : (proj.weapon == .holyGrenade ? 38 : 34))
+            let halo = SKShapeNode(circleOfRadius: sz * 0.55)
+            halo.fillColor = Art.cream.withAlphaComponent(0.28)
+            halo.strokeColor = .clear
+            root.addChild(halo)
+            body.addChild(sprite(proj.weapon.smallIconName, maxSide: sz))
 
         case .sheep:
-            let sprite = SKSpriteNode(imageNamed: "weapon_sheep")
-            sprite.size = CGSize(width: 44, height: 44)
-            body.addChild(sprite)
+            body.addChild(sprite(WeaponKind.sheep.smallIconName, maxSide: 50))
 
         case .shotgun, .firePunch:
             break
@@ -966,11 +1142,17 @@ final class GameScene: SKScene {
         root.addChild(body)
 
         if proj.fuseRemaining != nil {
-            let fuseLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+            let fuseBg = SKShapeNode(circleOfRadius: 13)
+            fuseBg.fillColor = Art.inkDeep
+            fuseBg.strokeColor = Art.cream
+            fuseBg.lineWidth = 2
+            fuseBg.position = CGPoint(x: 0, y: 34)
+            root.addChild(fuseBg)
+
+            let fuseLabel = Art.label(17, .black)
             fuseLabel.name = "fuseLabel"
-            fuseLabel.fontSize = 20
-            fuseLabel.fontColor = .white
-            fuseLabel.position = CGPoint(x: 0, y: 26)
+            fuseLabel.verticalAlignmentMode = .center
+            fuseLabel.position = CGPoint(x: 0, y: 34)
             root.addChild(fuseLabel)
         }
 
@@ -1008,27 +1190,50 @@ final class GameScene: SKScene {
     private func makeCrateNode(for crate: CrateState) -> SKNode {
         let root = SKNode()
 
+        // Striped coral/cream parachute with plum ink, matching the painted crates
         let chute = SKNode()
         chute.name = "chute"
-        let canopy = SKShapeNode(path: {
+        let canopyPath: CGPath = {
             let p = CGMutablePath()
-            p.addArc(center: CGPoint(x: 0, y: 36), radius: 26, startAngle: 0, endAngle: .pi, clockwise: false)
+            p.addArc(center: CGPoint(x: 0, y: 42), radius: 32, startAngle: 0, endAngle: .pi, clockwise: false)
+            p.addQuadCurve(to: CGPoint(x: 32, y: 42), control: CGPoint(x: 0, y: 32))
+            p.closeSubpath()
+            return p
+        }()
+        let canopy = SKShapeNode(path: canopyPath)
+        canopy.fillColor = Art.cream
+        canopy.strokeColor = Art.ink
+        canopy.lineWidth = 3
+        chute.addChild(canopy)
+        let stripe = SKShapeNode(path: {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: -9, y: 38))
+            p.addLine(to: CGPoint(x: -6, y: 73))
+            p.addLine(to: CGPoint(x: 6, y: 73))
+            p.addLine(to: CGPoint(x: 9, y: 38))
             p.closeSubpath()
             return p
         }())
-        canopy.fillColor = SKColor(white: 0.97, alpha: 0.94)
-        canopy.strokeColor = SKColor(white: 0.25, alpha: 0.72)
-        canopy.lineWidth = 1.8
-        chute.addChild(canopy)
+        stripe.fillColor = Art.coral
+        stripe.strokeColor = .clear
+        stripe.zPosition = 0.1
+        chute.addChild(stripe)
+        let canopyInk = SKShapeNode(path: canopyPath)
+        canopyInk.fillColor = .clear
+        canopyInk.strokeColor = Art.ink
+        canopyInk.lineWidth = 3
+        canopyInk.zPosition = 0.2
+        chute.addChild(canopyInk)
 
         let strings = SKShapeNode(path: {
             let p = CGMutablePath()
-            p.move(to: CGPoint(x: -22, y: 36)); p.addLine(to: CGPoint(x: -11, y: 14))
-            p.move(to: CGPoint(x: 22, y: 36)); p.addLine(to: CGPoint(x: 11, y: 14))
+            p.move(to: CGPoint(x: -30, y: 40)); p.addLine(to: CGPoint(x: -12, y: 16))
+            p.move(to: CGPoint(x: 30, y: 40)); p.addLine(to: CGPoint(x: 12, y: 16))
+            p.move(to: CGPoint(x: 0, y: 36)); p.addLine(to: CGPoint(x: 0, y: 18))
             return p
         }())
-        strings.strokeColor = SKColor(white: 0.88, alpha: 0.8)
-        strings.lineWidth = 1.4
+        strings.strokeColor = Art.ink.withAlphaComponent(0.8)
+        strings.lineWidth = 1.8
         chute.addChild(strings)
         root.addChild(chute)
 
@@ -1036,7 +1241,8 @@ final class GameScene: SKScene {
         if case .health = crate.kind { isHealth = true } else { isHealth = false }
 
         let sprite = SKSpriteNode(imageNamed: isHealth ? "crate_med" : "crate_weapon")
-        sprite.size = CGSize(width: 34, height: 34)
+        sprite.setScale(40 / max(1, sprite.size.height))
+        sprite.zPosition = 0.5
         root.addChild(sprite)
 
         return root
@@ -1090,14 +1296,17 @@ final class GameScene: SKScene {
             path.addLine(to: CGPoint(x: 20, y: 3.5))
             path.closeSubpath()
             powerMeterFill.path = path
-            powerMeterFill.fillColor = SKColor(
-                red: min(1.0, 0.35 + power * 0.9),
-                green: max(0.15, 0.95 - power * 0.72),
-                blue: 0.12,
-                alpha: 0.94
-            )
-            powerMeterFill.strokeColor = .white
-            powerMeterFill.lineWidth = 1.8
+            // Leaf → sunflower → coral as the charge builds, outlined in plum ink
+            let low = power < 0.5 ? Art.leaf : Art.sun
+            let high = power < 0.5 ? Art.sun : Art.coral
+            let t = power < 0.5 ? power * 2 : (power - 0.5) * 2
+            var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+            var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+            low.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+            high.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+            powerMeterFill.fillColor = SKColor(red: r1 + (r2 - r1) * t, green: g1 + (g2 - g1) * t, blue: b1 + (b2 - b1) * t, alpha: 1)
+            powerMeterFill.strokeColor = Art.ink
+            powerMeterFill.lineWidth = 3.4
         } else {
             powerMeterNode.isHidden = true
         }
@@ -1192,10 +1401,10 @@ final class GameScene: SKScene {
             let hp = engine.teamHealthTotal(idx)
             item.hpLabel.text = "\(hp)"
             let frac = max(0, min(1, CGFloat(hp) / CGFloat(max(1, item.maxHP))))
-            let barW = max(0, 292 * frac)
-            item.fill.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: barW, height: 7), cornerWidth: 3.5, cornerHeight: 3.5, transform: nil)
+            let barW = max(0, 286 * frac)
+            item.fill.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: barW, height: 8), cornerWidth: 4, cornerHeight: 4, transform: nil)
             let isCurrent = (idx == engine.currentTeamIndex)
-            item.bg.lineWidth = isCurrent ? 3.2 : 1.4
+            item.bg.lineWidth = isCurrent ? 4 : 1.6
             item.bg.alpha = hp > 0 ? 1.0 : 0.42
         }
 
@@ -1210,13 +1419,16 @@ final class GameScene: SKScene {
             urgent = displaySecs <= 5 && engine.phase == .playerControl
         }
         timerLabel.text = "\(displaySecs)"
-        timerLabel.fontColor = urgent ? SKColor(red: 1.0, green: 0.34, blue: 0.28, alpha: 1) : .white
-        timerBadge.strokeColor = urgent ? SKColor(red: 1.0, green: 0.34, blue: 0.28, alpha: 1) : SKColor(white: 1.0, alpha: 0.28)
+        timerLabel.fontColor = urgent ? Art.coral : Art.cream
+        timerBadge.strokeColor = urgent ? Art.coral : Art.cream.withAlphaComponent(0.25)
 
         // Active Weapon Chip with Painter Icon & Clear Multi-Shot Pips
         let w = engine.selectedWeapon
         if lastChipWeapon != w {
-            weaponChipIcon.texture = SKTexture(imageNamed: w.iconName)
+            let tex = SKTexture(imageNamed: w.smallIconName)
+            weaponChipIcon.texture = tex
+            let s = 46 / max(tex.size().width, tex.size().height)
+            weaponChipIcon.size = CGSize(width: tex.size().width * s, height: tex.size().height * s)
             lastChipWeapon = w
         }
         weaponChipTitle.text = w.name
@@ -1225,17 +1437,17 @@ final class GameScene: SKScene {
         if w == .shotgun {
             if engine.shotgunShotsRemaining == 1 {
                 weaponChipAmmo.text = "● ○  Noch 1 Schuss!"
-                weaponChipAmmo.fontColor = SKColor(red: 1.0, green: 0.84, blue: 0.28, alpha: 1)
+                weaponChipAmmo.fontColor = Art.sun
             } else {
                 weaponChipAmmo.text = "● ●  2 Schüsse pro Zug"
-                weaponChipAmmo.fontColor = SKColor(red: 0.88, green: 0.94, blue: 1.0, alpha: 0.92)
+                weaponChipAmmo.fontColor = Art.cream.withAlphaComponent(0.85)
             }
         } else if let ammo = engine.currentTeam.ammoCount(for: w) {
             weaponChipAmmo.text = "Vorrat: ×\(ammo) · \(w.tagBadge)"
-            weaponChipAmmo.fontColor = SKColor(red: 0.88, green: 0.92, blue: 0.98, alpha: 0.88)
+            weaponChipAmmo.fontColor = Art.cream.withAlphaComponent(0.85)
         } else {
             weaponChipAmmo.text = "Vorrat: ∞ · \(w.tagBadge)"
-            weaponChipAmmo.fontColor = SKColor(red: 0.88, green: 0.92, blue: 0.98, alpha: 0.88)
+            weaponChipAmmo.fontColor = Art.cream.withAlphaComponent(0.85)
         }
 
         // Wind gauge
@@ -1248,10 +1460,8 @@ final class GameScene: SKScene {
         }
         let fillW = abs(engine.wind) * 112
         let fillX = engine.wind >= 0 ? 0 : -fillW
-        windBarFill.path = CGPath(roundedRect: CGRect(x: fillX, y: -5, width: fillW, height: 10), cornerWidth: 5, cornerHeight: 5, transform: nil)
-        windBarFill.fillColor = engine.wind >= 0
-            ? SKColor(red: 0.28, green: 0.80, blue: 1.0, alpha: 0.95)
-            : SKColor(red: 1.0, green: 0.65, blue: 0.24, alpha: 0.95)
+        windBarFill.path = CGPath(roundedRect: CGRect(x: fillX, y: -6, width: fillW, height: 12), cornerWidth: 6, cornerHeight: 6, transform: nil)
+        windBarFill.fillColor = engine.wind >= 0 ? Art.lagoon : Art.sun
 
         // Turn Banner
         if case .turnBanner = engine.phase {
@@ -1268,11 +1478,11 @@ final class GameScene: SKScene {
         // Persistent Status Pill for Multi-Shot Shotgun or Dynamite Retreat!
         if case .retreat(let rem) = engine.phase {
             statusPillNode.isHidden = false
-            statusPillBg.fillColor = SKColor(red: 0.92, green: 0.22, blue: 0.22, alpha: 0.94)
+            statusPillBg.fillColor = Art.coral
             statusPillLabel.text = "DYNAMIT TICKT! SCHNELL WEGRENNEN! (\(max(1, Int(ceil(rem))))s)"
         } else if engine.shotgunShotsRemaining == 1 && engine.phase == .playerControl {
             statusPillNode.isHidden = false
-            statusPillBg.fillColor = SKColor(red: 0.94, green: 0.56, blue: 0.14, alpha: 0.95)
+            statusPillBg.fillColor = SKColor(red: 0.93, green: 0.55, blue: 0.20, alpha: 1)
             statusPillLabel.text = "SCHROTFLINTE · NOCH 1 SCHUSS ÜBRIG! (● ○)"
         } else {
             statusPillNode.isHidden = true
@@ -1284,9 +1494,9 @@ final class GameScene: SKScene {
             for (i, slot) in weaponBarSlots.enumerated() {
                 let isSelected = (i == engine.weaponBarSelectionIndex)
                 let canUse = engine.currentTeam.canUse(slot.kind)
-                slot.bg.lineWidth = isSelected ? 4.4 : 1.8
-                slot.bg.strokeColor = isSelected ? .white : slot.kind.accentColor.withAlphaComponent(0.42)
-                slot.bg.fillColor = isSelected ? slot.kind.accentColor.withAlphaComponent(0.30) : SKColor(white: 1.0, alpha: 0.07)
+                slot.bg.lineWidth = isSelected ? 6 : 2.5
+                slot.bg.strokeColor = isSelected ? Art.sun : Art.ink
+                slot.bg.fillColor = isSelected ? slot.kind.accentColor.withAlphaComponent(0.42) : Art.inkSoft
                 slot.bg.setScale(isSelected ? 1.06 : 1.0)
                 slot.bg.zPosition = isSelected ? 5 : 1
                 slot.bg.alpha = canUse ? 1.0 : 0.34
@@ -1398,9 +1608,9 @@ final class GameScene: SKScene {
     }
 
     private func spawnSparkleBurst(at center: CGPoint, color: SKColor) {
-        let colors = [color, .white, SKColor(red: 1.0, green: 0.88, blue: 0.34, alpha: 1)]
+        let colors = [color, Art.cream, Art.sun]
         for i in 0..<14 {
-            let star = SKShapeNode(circleOfRadius: CGFloat.random(in: 3...5.5))
+            let star = SKShapeNode(path: sparklePath(radius: CGFloat.random(in: 6...10)))
             star.fillColor = colors[i % colors.count]
             star.strokeColor = .clear
             star.position = center
@@ -1421,7 +1631,7 @@ final class GameScene: SKScene {
     private func spawnExplosionFX(at center: CGPoint, radius: CGFloat, isHoly: Bool) {
         let ring = SKShapeNode(circleOfRadius: radius * 0.3)
         ring.position = center
-        ring.strokeColor = isHoly ? SKColor(red: 1.0, green: 0.94, blue: 0.45, alpha: 1) : .white
+        ring.strokeColor = isHoly ? Art.sun : Art.cream
         ring.fillColor = .clear
         ring.lineWidth = isHoly ? 7 : 4.5
         fxLayer.addChild(ring)
@@ -1432,8 +1642,9 @@ final class GameScene: SKScene {
 
         let core = SKShapeNode(circleOfRadius: radius * 0.85)
         core.position = center
-        core.fillColor = isHoly ? SKColor(red: 1.0, green: 0.92, blue: 0.42, alpha: 0.95) : SKColor(red: 1.0, green: 0.58, blue: 0.14, alpha: 0.95)
-        core.strokeColor = .clear
+        core.fillColor = isHoly ? Art.sun : SKColor(red: 1.0, green: 0.58, blue: 0.22, alpha: 1)
+        core.strokeColor = Art.ink
+        core.lineWidth = 4
         fxLayer.addChild(core)
         core.run(.sequence([
             .group([.scale(to: 1.45, duration: 0.22), .fadeOut(withDuration: 0.26)]),
@@ -1452,8 +1663,9 @@ final class GameScene: SKScene {
         let debrisCount = isHoly ? 28 : 16
         for _ in 0..<debrisCount {
             let chunk = SKShapeNode(circleOfRadius: CGFloat.random(in: 3...6.5))
-            chunk.fillColor = Bool.random() ? SKColor(red: 1.0, green: 0.82, blue: 0.26, alpha: 1) : SKColor(red: 0.46, green: 0.32, blue: 0.24, alpha: 1)
-            chunk.strokeColor = .clear
+            chunk.fillColor = Bool.random() ? Art.sun : SKColor(red: 0.55, green: 0.36, blue: 0.26, alpha: 1)
+            chunk.strokeColor = Art.ink
+            chunk.lineWidth = 1.5
             chunk.position = center
             fxLayer.addChild(chunk)
 
@@ -1475,7 +1687,7 @@ final class GameScene: SKScene {
     private func spawnSmokePuff(at point: CGPoint, radius: CGFloat, alpha: CGFloat) {
         let puff = SKShapeNode(circleOfRadius: radius)
         puff.position = point
-        puff.fillColor = SKColor(white: 0.94, alpha: alpha)
+        puff.fillColor = Art.cream.withAlphaComponent(alpha)
         puff.strokeColor = .clear
         fxLayer.addChild(puff)
         puff.run(.sequence([
@@ -1493,7 +1705,7 @@ final class GameScene: SKScene {
         path.move(to: start)
         path.addLine(to: end)
         let line = SKShapeNode(path: path)
-        line.strokeColor = SKColor(red: 1.0, green: 0.95, blue: 0.60, alpha: 0.95)
+        line.strokeColor = Art.sun
         line.lineWidth = 4.2
         fxLayer.addChild(line)
         line.run(.sequence([
@@ -1505,8 +1717,9 @@ final class GameScene: SKScene {
     private func spawnWaterSplash(at point: CGPoint) {
         for _ in 0..<18 {
             let drop = SKShapeNode(circleOfRadius: CGFloat.random(in: 3.5...7.5))
-            drop.fillColor = SKColor(red: 0.68, green: 0.94, blue: 1.0, alpha: 0.92)
-            drop.strokeColor = .clear
+            drop.fillColor = Art.cream.withAlphaComponent(0.92)
+            drop.strokeColor = Art.lagoon
+            drop.lineWidth = 1.5
             drop.position = point
             fxLayer.addChild(drop)
             let dx = CGFloat.random(in: -80...80)
@@ -1522,20 +1735,18 @@ final class GameScene: SKScene {
     }
 
     private func spawnFloatingText(_ text: String, at point: CGPoint, color: SKColor, fontSize: CGFloat) {
-        let label = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-        label.text = text
-        label.fontSize = fontSize
-        label.fontColor = color
+        // Comic pop text: palette fill with a thick plum ink outline + drop shadow
+        let label = SKLabelNode(attributedText: Art.outlinedText(text, size: fontSize, color: color))
         label.position = point
 
-        let shadow = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-        shadow.text = text
-        shadow.fontSize = fontSize
-        shadow.fontColor = SKColor(white: 0, alpha: 0.72)
-        shadow.position = CGPoint(x: 2, y: -2)
+        let shadow = SKLabelNode(attributedText: Art.outlinedText(text, size: fontSize, color: Art.ink, outline: Art.ink))
+        shadow.position = CGPoint(x: 0, y: -4)
+        shadow.alpha = 0.55
         shadow.zPosition = -1
         label.addChild(shadow)
 
+        label.setScale(0.6)
+        label.run(.scale(to: 1.0, duration: 0.14))
         fxLayer.addChild(label)
         label.run(.sequence([
             .group([
