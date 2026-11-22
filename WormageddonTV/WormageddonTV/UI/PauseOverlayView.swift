@@ -1,0 +1,83 @@
+import SwiftUI
+
+struct PauseOverlayView: View {
+    @State private var isMuted = SoundEngine.shared.isMuted
+    let onResume: () -> Void
+    let onRestart: () -> Void
+    let onQuitToMenu: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.74).ignoresSafeArea()
+
+            HStack(spacing: 64) {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("PAUSE")
+                        .font(.system(size: 56, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Button("Weiterspielen", action: onResume)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.20, green: 0.62, blue: 0.98))
+
+                    Button("Neue Insel (Neustart)", action: onRestart)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.24, green: 0.26, blue: 0.36))
+
+                    Button(isMuted ? "Geräusche: Aus" : "Geräusche: An") {
+                        isMuted.toggle()
+                        SoundEngine.shared.isMuted = isMuted
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0.24, green: 0.26, blue: 0.36))
+
+                    Button("Zurück zum Start", action: onQuitToMenu)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.86, green: 0.26, blue: 0.28))
+                }
+                .frame(width: 440, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("STEUERUNG")
+                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .tracking(2.2)
+                        .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.34))
+
+                    Group {
+                        Text("Apple TV Siri Remote")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("• Links / Rechts: Wurm laufen lassen\n• Hoch / Runter: Zielen\n• Auswahl halten & loslassen: Schießen\n• 2× Hoch / 2× Runter: Sprung / Rückwärtssalto\n• Play/Pause: Waffen-Leiste öffnen\n• Menü / Zurück: Pause")
+                            .font(.system(size: 20, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .lineSpacing(6)
+                    }
+
+                    Divider().background(.white.opacity(0.2))
+
+                    Group {
+                        Text("Game-Controller (PlayStation / Xbox / MFi)")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("• Linker Stick / Steuerkreuz: Laufen & Zielen\n• Rechter Stick: Direkt in jede Richtung zielen\n• R2 oder X/Quadrat halten: Schießen\n• A/Kreuz: Sprung  ·  B/Kreis: Rückwärtssalto\n• L1 / R1: Waffe wechseln  ·  Y/Dreieck: Waffen-Leiste")
+                            .font(.system(size: 20, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .lineSpacing(6)
+                    }
+                }
+                .padding(36)
+                .frame(width: 660, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color(red: 0.08, green: 0.10, blue: 0.17).opacity(0.95))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .strokeBorder(.white.opacity(0.20), lineWidth: 2)
+                        )
+                )
+            }
+            .padding(80)
+        }
+        .onExitCommand(perform: onResume)
+    }
+}

@@ -1,0 +1,6 @@
+PROJECTS.md
+.amp/
+.DS_Store
+build/
+DerivedData/
+*.xcarchive
