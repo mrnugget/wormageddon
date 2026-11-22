@@ -358,6 +358,8 @@ final class GameScene: SKScene {
     private func buildSurfaceProps() {
         propLayer.removeAllChildren()
         surfaceProps.removeAll()
+        // Hedgewars maps bring their own painted scenery; island props would clash.
+        guard !engine.config.mapStyle.isHedgewarsArt else { return }
 
         var rng = SeededRNG(seed: engine.config.seed ^ 0xF10E)
         var towersPlaced = 0

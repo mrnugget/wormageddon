@@ -9,7 +9,7 @@ A native tvOS turn-based artillery game inspired by *Worms Armageddon*, built in
 
 ## Features
 - **2–3 Player Local Multiplayer**: Hotseat turn banners, 45s turn timer, team health bars, and victory summary.
-- **Pixel-Level Destructible Terrain**: 4 layouts (*Archipel*, *Gipfel*, *Schlucht*, *Festung*) and 3 themes (*Goldener Abend*, *Smaragd-Inseln*, *Zauber-Nacht*) with charred craters, destructible wildflowers & trees, fall damage, supply crates, and Sudden Death rising water.
+- **Pixel-Level Destructible Terrain**: 4 procedural layouts (*Archipel*, *Gipfel*, *Schlucht*, *Festung*) plus 8 hand-painted Hedgewars maps (*Käse-Insel*, *Riesentorte*, *Pilzwald*, *Märchenburg*, *Piratenflagge*, *Hängematte*, *Igel-Liebe*, *Krakenmeer*) and 3 themes (*Goldener Abend*, *Smaragd-Inseln*, *Zauber-Nacht*) with charred craters, destructible wildflowers & trees, fall damage, supply crates, and Sudden Death rising water.
 - **6 Weapons**: Bazooka, Granate, Streubombe, Schrotflinte (2 shots), Luftangriff, and Heilige Granate.
 - **Siri Remote & Game Controllers**: Works with just the Apple TV Siri Remote (pass around between turns) or Bluetooth PlayStation / Xbox / Switch Pro / MFi controllers.
 
@@ -32,3 +32,18 @@ A native tvOS turn-based artillery game inspired by *Worms Armageddon*, built in
 4. Go to **Window → Devices and Simulators**, select your Apple TV, and enter the pairing code shown on the TV.
 5. Select the `WormageddonTV` target → **Signing & Capabilities** → pick your **Team** (a free Apple ID works for 7-day installs) and change the **Bundle Identifier** if needed (e.g. `com.mrnugget.wurmageddon.tv`).
 6. Select your Apple TV as the run destination and press **⌘R**.
+
+## Map Credits
+
+The hand-painted battlefields are copied from [Hedgewars](https://github.com/hedgewars/hw) (`share/hedgewars/Data/Maps/*/map.png`), whose images are licensed under the GNU Free Documentation License 1.2. They were scaled to 1440×750 and their alpha masks cleaned (binary alpha, specks and thin hairs removed) for Wurmageddon's destructible terrain.
+
+| Wurmageddon | Hedgewars map | Author |
+|---|---|---|
+| Käse-Insel | Cheese | CopherNeue |
+| Riesentorte | Cake | Josh |
+| Pilzwald | Mushrooms | John Dum |
+| Märchenburg | Castle | Stanko Tadić |
+| Piratenflagge | PirateFlag | Stanko Tadić |
+| Hängematte | Hammock | John Dum |
+| Igel-Liebe | Hedgelove | John Dum |
+| Krakenmeer | Octorama | jessor (octopus art: iconicon.net, CC) |

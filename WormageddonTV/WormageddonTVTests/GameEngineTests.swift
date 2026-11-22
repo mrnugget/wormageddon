@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import WormageddonTV
 
 final class GameEngineTests: XCTestCase {
@@ -32,6 +33,36 @@ final class GameEngineTests: XCTestCase {
         XCTAssertGreaterThan(removed, 200)
         XCTAssertEqual(terrain.revision, revBefore + 1)
         XCTAssertFalse(terrain.isSolid(worldPoint: target))
+    }
+
+    func testHedgewarsMapsSpawnTwelveWormsOnLedgesAndCarve() {
+        let r = WorldConstants.wormRadius
+        for style in MapStyle.allCases where style.isHedgewarsArt {
+            var config = MatchConfig()
+            config.playerCount = 3
+            config.wormsPerTeam = 4
+            config.mapStyle = style
+            config.seed = 4242
+            let engine = GameEngine(config: config)
+            XCTAssertEqual(engine.worms.count, 12)
+
+            XCTAssertNotNil(UIImage(named: style.hedgewarsAssetName ?? ""), "\(style.rawValue) artwork missing from asset catalog")
+
+            var spots = Set<String>()
+            for worm in engine.worms {
+                let p = worm.position
+                XCTAssertFalse(engine.terrain.isSolidCircle(center: p, radius: r * 0.8), "\(style.rawValue): worm stuck in terrain at \(p)")
+                XCTAssertTrue(engine.terrain.isSolid(worldPoint: CGPoint(x: p.x, y: p.y - r - 3)), "\(style.rawValue): worm floating at \(p)")
+                XCTAssertGreaterThan(p.y, WorldConstants.initialWaterY + 40)
+                spots.insert("\(Int(p.x)),\(Int(p.y))")
+            }
+            XCTAssertEqual(spots.count, 12, "\(style.rawValue): worms share spawn spots")
+
+            // Blasting the floor under a worm makes it fall.
+            let victim = engine.worms[0]
+            engine.terrain.carveCrater(worldCenter: CGPoint(x: victim.position.x, y: victim.position.y - r - 20), worldRadius: 44)
+            XCTAssertFalse(engine.terrain.isSolid(worldPoint: CGPoint(x: victim.position.x, y: victim.position.y - r - 3)))
+        }
     }
 
     func testThreePlayerSetupAndTurnRotation() {

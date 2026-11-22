@@ -7,8 +7,34 @@ enum MapStyle: String, CaseIterable, Identifiable {
     case twinPeaks = "Gipfel"
     case canyon = "Schlucht"
     case fortress = "Festung"
+    // Hand-painted battlefields copied from Hedgewars (GFDL 1.2, see README)
+    case cheese = "Käse-Insel"
+    case cake = "Riesentorte"
+    case mushrooms = "Pilzwald"
+    case castle = "Märchenburg"
+    case pirateFlag = "Piratenflagge"
+    case hammock = "Hängematte"
+    case hedgelove = "Igel-Liebe"
+    case octorama = "Krakenmeer"
 
     var id: String { rawValue }
+
+    /// Asset catalog image (1440×750, binary alpha = solid terrain) for Hedgewars bitmap maps.
+    var hedgewarsAssetName: String? {
+        switch self {
+        case .archipelago, .twinPeaks, .canyon, .fortress: return nil
+        case .cheese: return "map_hw_cheese"
+        case .cake: return "map_hw_cake"
+        case .mushrooms: return "map_hw_mushrooms"
+        case .castle: return "map_hw_castle"
+        case .pirateFlag: return "map_hw_pirateflag"
+        case .hammock: return "map_hw_hammock"
+        case .hedgelove: return "map_hw_hedgelove"
+        case .octorama: return "map_hw_octorama"
+        }
+    }
+
+    var isHedgewarsArt: Bool { hedgewarsAssetName != nil }
 
     var subtitle: String {
         switch self {
@@ -16,6 +42,14 @@ enum MapStyle: String, CaseIterable, Identifiable {
         case .twinPeaks: return "Hohe Bergketten mit weiten Tälern"
         case .canyon: return "Steile Klippen und eine mutige Brücke"
         case .fortress: return "Treppen-Inseln und geheime Verstecke"
+        case .cheese: return "Löchriger Käse, eine Gabel und eine fliegende Maus"
+        case .cake: return "Drei Etagen Sahnetorte und ein Tortenmesser-Steg"
+        case .mushrooms: return "Hüpf von Fliegenpilz zu Fliegenpilz"
+        case .castle: return "Ritterburg auf dem Hügel und eine Wolken-Insel"
+        case .pirateFlag: return "Säbel-Brücken über dem Meer – sprengen!"
+        case .hammock: return "Baumkronen und eine wackelige Hängematte"
+        case .hedgelove: return "Zwei verliebte Igel und ein schwebendes Herz"
+        case .octorama: return "Krake Olga und schwebende Blasen-Inseln"
         }
     }
 }

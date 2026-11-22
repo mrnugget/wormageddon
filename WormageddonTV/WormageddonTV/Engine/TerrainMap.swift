@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import SpriteKit
+import UIKit
 
 struct SeededRNG {
     private var state: UInt64
@@ -50,8 +51,12 @@ final class TerrainMap {
         self.solidMask = Array(repeating: 0, count: pixelWidth * pixelHeight)
         self.rgbaBuffer = Array(repeating: 0, count: pixelWidth * pixelHeight * 4)
 
-        generateTerrain(style: style, seed: seed)
-        paintInitialColors()
+        if let asset = style.hedgewarsAssetName, loadArtwork(named: asset) {
+            revision += 1
+        } else {
+            generateTerrain(style: style, seed: seed)
+            paintInitialColors()
+        }
     }
 
     // MARK: - Coordinate Conversion
@@ -108,6 +113,25 @@ final class TerrainMap {
             }
         }
         return nil
+    }
+
+    /// All top surfaces in a column (multi-level ledges, platforms, cave floors), highest first,
+    /// each with at least `clearance` world points of open air above it.
+    func surfaceTops(atWorldX x: CGFloat, clearance: CGFloat) -> [CGFloat] {
+        let px = Int(floor(x / worldScale))
+        guard px >= 0, px < pixelWidth else { return [] }
+        let needAir = Int(ceil(clearance / worldScale))
+        var tops: [CGFloat] = []
+        var airRun = needAir // open sky above the map counts as air
+        for py in stride(from: pixelHeight - 1, through: 0, by: -1) {
+            if solidMask[py * pixelWidth + px] == 0 {
+                airRun += 1
+            } else {
+                if airRun >= needAir { tops.append(CGFloat(py + 1) * worldScale) }
+                airRun = 0
+            }
+        }
+        return tops
     }
 
     /// Estimates outward terrain surface normal around a world point for grenade/worm bounces.
@@ -214,6 +238,45 @@ final class TerrainMap {
         return tex
     }
 
+    // MARK: - Hedgewars Bitmap Maps
+
+    /// Copies a pre-cleaned Hedgewars map (alpha ≥ 50% = solid) into the pixel buffers.
+    private func loadArtwork(named name: String) -> Bool {
+        guard let cgImage = UIImage(named: name)?.cgImage else { return false }
+        let ok = rgbaBuffer.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(
+                data: buf.baseAddress,
+                width: pixelWidth,
+                height: pixelHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: pixelWidth * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            ctx.interpolationQuality = .none
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+            return true
+        }
+        guard ok else { return false }
+
+        for py in 0..<pixelHeight {
+            let bufRow = (pixelHeight - 1 - py) * pixelWidth
+            for px in 0..<pixelWidth {
+                let off = (bufRow + px) * 4
+                if rgbaBuffer[off + 3] >= 128 {
+                    solidMask[py * pixelWidth + px] = 1
+                    rgbaBuffer[off + 3] = 255
+                } else {
+                    rgbaBuffer[off] = 0
+                    rgbaBuffer[off + 1] = 0
+                    rgbaBuffer[off + 2] = 0
+                    rgbaBuffer[off + 3] = 0
+                }
+            }
+        }
+        return true
+    }
+
     // MARK: - Procedural Generation (50% Larger Worlds)
 
     private func generateTerrain(style: MapStyle, seed: UInt64) {
@@ -238,7 +301,7 @@ final class TerrainMap {
             var heightPx: Double = 0
 
             switch style {
-            case .archipelago:
+            case .archipelago, .cheese, .cake, .mushrooms, .castle, .pirateFlag, .hammock, .hedgelove, .octorama:
                 // Four sweeping Worms-style islands across the 2880pt ocean
                 let i1 = plateau(u, center: 0.14, halfWidth: 0.092) * 320.0
                 let i2 = plateau(u, center: 0.38, halfWidth: 0.102) * 395.0

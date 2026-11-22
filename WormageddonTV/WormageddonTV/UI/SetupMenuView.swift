@@ -108,12 +108,19 @@ struct SetupMenuView: View {
                             }
                         }
 
-                        optionRow(title: "INSEL-WELT") {
-                            ForEach(MapStyle.allCases) { style in
-                                selectPill(label: style.rawValue, selected: config.mapStyle == style) {
-                                    config.mapStyle = style
+                        VStack(alignment: .leading, spacing: 10) {
+                            optionTitle("INSEL-WELT")
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), alignment: .leading, spacing: 14) {
+                                ForEach(MapStyle.allCases) { style in
+                                    SelectableTVPill(label: style.rawValue, selected: config.mapStyle == style, fillsWidth: true) {
+                                        config.mapStyle = style
+                                    }
                                 }
                             }
+                            Text(config.mapStyle.subtitle)
+                                .font(.system(size: 18, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .lineLimit(1)
                         }
 
                         optionRow(title: "STIMMUNG") {
@@ -230,14 +237,18 @@ struct SetupMenuView: View {
 
     private func optionRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 16, weight: .heavy, design: .rounded))
-                .tracking(2.2)
-                .foregroundStyle(.white.opacity(0.72))
+            optionTitle(title)
             HStack(spacing: 14) {
                 content()
             }
         }
+    }
+
+    private func optionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 16, weight: .heavy, design: .rounded))
+            .tracking(2.2)
+            .foregroundStyle(.white.opacity(0.72))
     }
 
     private func selectPill(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -260,6 +271,7 @@ struct SetupMenuView: View {
 private struct SelectableTVPill: View {
     let label: String
     let selected: Bool
+    var fillsWidth: Bool = false
     let action: () -> Void
     @FocusState private var isFocused: Bool
 
@@ -270,8 +282,9 @@ private struct SelectableTVPill: View {
                 .foregroundStyle(isFocused ? Color(red: 0.08, green: 0.10, blue: 0.18) : .white)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 22)
+                .padding(.horizontal, fillsWidth ? 12 : 22)
                 .padding(.vertical, 12)
+                .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
         .focused($isFocused)
         .buttonStyle(.borderedProminent)

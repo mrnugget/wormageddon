@@ -216,21 +216,26 @@ final class GameEngine {
         }
     }
 
+    /// Picks well-spread spawn spots on any walkable ledge (ground, platforms, cave floors),
+    /// never inside ceilings or over pits: a worm-wide flat surface with head room above.
     private func findSpawnPoints(count: Int) -> [CGPoint] {
+        let r = WorldConstants.wormRadius
         var candidates: [CGPoint] = []
-        let margin: CGFloat = 180
-        let sampleCount = 108
-        let usableWidth = WorldConstants.width - margin * 2
 
-        for i in 0..<sampleCount {
-            let x = margin + usableWidth * (CGFloat(i) / CGFloat(sampleCount - 1))
-            if let sy = terrain.surfaceY(atWorldX: x), sy > WorldConstants.initialWaterY + 40, sy < WorldConstants.height - 200 {
-                if let syL = terrain.surfaceY(atWorldX: x - 16),
-                   let syR = terrain.surfaceY(atWorldX: x + 16),
-                   abs(syL - sy) < 38, abs(syR - sy) < 38 {
-                    candidates.append(CGPoint(x: x, y: sy + WorldConstants.wormRadius + 2))
+        var x: CGFloat = 70
+        while x < WorldConstants.width - 70 {
+            for sy in terrain.surfaceTops(atWorldX: x, clearance: r * 2.6)
+            where sy > WorldConstants.initialWaterY + 60 && sy < WorldConstants.height - 120 {
+                let center = CGPoint(x: x, y: sy + r + 2)
+                let isLedge = [-14, -7, 7, 14].allSatisfy { dx -> Bool in
+                    guard let side = terrain.surfaceY(atWorldX: x + CGFloat(dx), fromWorldY: sy + 12) else { return false }
+                    return abs(side - sy) <= 10
+                }
+                if isLedge, !terrain.isSolidCircle(center: CGPoint(x: x, y: center.y + 6), radius: r) {
+                    candidates.append(center)
                 }
             }
+            x += 12
         }
 
         if candidates.isEmpty {
@@ -239,11 +244,19 @@ final class GameEngine {
             }
         }
 
-        var picked: [CGPoint] = []
-        let strideStep = max(1, candidates.count / max(1, count))
-        for i in 0..<count {
-            let idx = min(candidates.count - 1, i * strideStep + strideStep / 2)
-            picked.append(candidates[idx])
+        // Farthest-point sampling from a seeded random start spreads worms across all levels.
+        var picked: [CGPoint] = [candidates[Int(rng.nextUInt64() % UInt64(candidates.count))]]
+        var nearest = candidates.map { hypot($0.x - picked[0].x, $0.y - picked[0].y) }
+        while picked.count < count {
+            guard let best = nearest.indices.max(by: { nearest[$0] < nearest[$1] }), nearest[best] > 0 else {
+                picked.append(candidates[picked.count % candidates.count]) // fewer spots than worms
+                continue
+            }
+            let p = candidates[best]
+            picked.append(p)
+            for i in candidates.indices {
+                nearest[i] = min(nearest[i], hypot(candidates[i].x - p.x, candidates[i].y - p.y))
+            }
         }
         return picked
     }
